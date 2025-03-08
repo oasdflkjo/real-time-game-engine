@@ -5,6 +5,7 @@
 #include <cglm/cglm.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // GLFW window
 static GLFWwindow* window = NULL;
@@ -28,6 +29,15 @@ static VSyncMode vsync_mode = VSYNC_ADAPTIVE;
 // Pixels per meter (for SI unit conversion)
 #define PIXELS_PER_METER 50.0f
 
+// Grid texture
+static GLuint grid_texture = 0;
+static int grid_texture_size = 512;  // Size of the grid texture (power of 2)
+static float grid_texture_scale = 1.0f;  // Scale of the grid in the texture (larger value = smaller grid cells)
+
+// Ground and player textures
+static GLuint ground_texture = 0;
+static GLuint player_texture = 0;
+
 // Frame rate tracking
 static struct {
     double last_time;
@@ -35,6 +45,21 @@ static struct {
     double fps;
     char fps_text[32];
 } frame_counter = {0};
+
+// Function declarations
+static GLuint generate_grid_texture(int size, float grid_spacing, float line_width, float r, float g, float b, float a);
+static void draw_textured_quad(float x, float y, float width, float height, float s1, float t1, float s2, float t2);
+static void draw_grid_texture(const Camera* camera);
+static void draw_rectangle(float x, float y, float width, float height, float r, float g, float b);
+static void draw_world_rectangle(const Camera* camera, float x, float y, float width, float height, float r, float g, float b);
+static void draw_line(float x1, float y1, float x2, float y2, float r, float g, float b);
+static void draw_world_line(const Camera* camera, float x1, float y1, float x2, float y2, float r, float g, float b);
+static void draw_world_grid(const Camera* camera, float grid_size, float r, float g, float b);
+static void draw_coordinate_axes(const Camera* camera);
+static GLuint generate_ground_texture(int size);
+static GLuint generate_player_texture(int size);
+static void draw_textured_world_rectangle(const Camera* camera, float x, float y, float width, float height, 
+                                         GLuint texture, float s1, float t1, float s2, float t2);
 
 // Error callback for GLFW
 static void error_callback(int error, const char* description) {
@@ -222,14 +247,62 @@ bool renderer_init(int width, int height) {
     // Set clear color (black)
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     
+    // Enable blending for transparency
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    
+    // Generate grid texture
+    grid_texture_size = 512;  // Size of the grid texture (power of 2)
+    grid_texture_scale = 1.0f;  // Scale of the grid in the texture (larger value = smaller grid cells)
+    
+    // Create the grid texture with gray lines
+    // Parameters: size, grid spacing (cells per texture), line width (% of texture), r, g, b, alpha
+    grid_texture = generate_grid_texture(grid_texture_size, 32.0f, 0.5f, 0.3f, 0.3f, 0.3f, 0.5f);
+    
+    // Check if texture was created successfully
+    if (grid_texture == 0) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "Failed to create grid texture");
+        return false;
+    }
+    
     LOG_INFO(LOG_CATEGORY_RENDERER, "Initialized with %s mode, size %dx%d (%.2f pixels per meter, VSync: %s, MSAA: 4x)", 
            is_fullscreen ? "fullscreen" : "windowed", window_width, window_height, PIXELS_PER_METER, vsync_str);
+    
+    // Generate ground texture
+    ground_texture = generate_ground_texture(512);
+    if (ground_texture == 0) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "Failed to create ground texture");
+        return false;
+    }
+    
+    // Generate player texture
+    player_texture = generate_player_texture(512);
+    if (player_texture == 0) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "Failed to create player texture");
+        return false;
+    }
     
     return true;
 }
 
 // Shutdown the renderer
 void renderer_shutdown(void) {
+    // Delete grid texture
+    if (grid_texture) {
+        glDeleteTextures(1, &grid_texture);
+        grid_texture = 0;
+    }
+    
+    if (ground_texture) {
+        glDeleteTextures(1, &ground_texture);
+        ground_texture = 0;
+    }
+    
+    if (player_texture) {
+        glDeleteTextures(1, &player_texture);
+        player_texture = 0;
+    }
+    
     if (window) {
         glfwDestroyWindow(window);
         window = NULL;
@@ -242,9 +315,6 @@ void renderer_shutdown(void) {
 
 // Begin a new frame
 void renderer_begin_frame(void) {
-    // Clear the screen
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    
     // Update frame counter
     double current_time = glfwGetTime();
     frame_counter.frames++;
@@ -408,6 +478,245 @@ static void draw_coordinate_axes(const Camera* camera) {
     glLineWidth(1.0f);
 }
 
+// Generate a grid texture to avoid jittering
+static GLuint generate_grid_texture(int size, float grid_spacing, float line_width, float r, float g, float b, float a) {
+    LOG_INFO(LOG_CATEGORY_RENDERER, "Generating grid texture: size=%d, spacing=%.1f, width=%.1f", 
+           size, grid_spacing, line_width);
+    
+    // Create a texture
+    GLuint texture = 0;
+    glGenTextures(1, &texture);
+    
+    if (texture == 0) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "Failed to generate texture");
+        return 0;
+    }
+    
+    glBindTexture(GL_TEXTURE_2D, texture);
+    
+    // Set texture parameters
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    
+    // Create texture data with all pixels initially transparent
+    unsigned char* data = (unsigned char*)calloc(size * size * 4, sizeof(unsigned char));
+    if (!data) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "Failed to allocate memory for grid texture");
+        glDeleteTextures(1, &texture);
+        return 0;
+    }
+    
+    // Calculate grid parameters
+    int grid_pixels = (int)(size / grid_spacing);
+    int line_pixels = (int)(line_width * size / 100.0f);  // Line width as percentage of texture size
+    if (line_pixels < 1) line_pixels = 1;
+    
+    LOG_INFO(LOG_CATEGORY_RENDERER, "Grid parameters: grid_pixels=%d, line_pixels=%d", 
+           grid_pixels, line_pixels);
+    
+    // Draw grid lines
+    for (int y = 0; y < size; y++) {
+        for (int x = 0; x < size; x++) {
+            // Calculate index in the texture data
+            int index = (y * size + x) * 4;
+            
+            // Default to transparent
+            data[index + 0] = 0;  // R
+            data[index + 1] = 0;  // G
+            data[index + 2] = 0;  // B
+            data[index + 3] = 0;  // A (transparent)
+            
+            // Check if this pixel is on a grid line
+            bool on_grid_x = (x % grid_pixels) < line_pixels;
+            bool on_grid_y = (y % grid_pixels) < line_pixels;
+            
+            // Check if this pixel is on an axis
+            bool on_x_axis = abs(y - size/2) < line_pixels * 2;  // Make axes slightly thicker
+            bool on_y_axis = abs(x - size/2) < line_pixels * 2;
+            
+            // Set color based on position
+            if (on_x_axis) {
+                // X-axis (red)
+                data[index + 0] = 255;  // R
+                data[index + 1] = 0;    // G
+                data[index + 2] = 0;    // B
+                data[index + 3] = 255;  // A (opaque)
+            } 
+            else if (on_y_axis) {
+                // Y-axis (green)
+                data[index + 0] = 0;    // R
+                data[index + 1] = 255;  // G
+                data[index + 2] = 0;    // B
+                data[index + 3] = 255;  // A (opaque)
+            }
+            else if (on_grid_x || on_grid_y) {
+                // Grid lines (gray)
+                data[index + 0] = (unsigned char)(r * 255);
+                data[index + 1] = (unsigned char)(g * 255);
+                data[index + 2] = (unsigned char)(b * 255);
+                data[index + 3] = (unsigned char)(a * 255);
+            }
+        }
+    }
+    
+    // Upload texture data
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    
+    // Check for OpenGL errors
+    GLenum error = glGetError();
+    if (error != GL_NO_ERROR) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "OpenGL error when creating texture: %d", error);
+        free(data);
+        glDeleteTextures(1, &texture);
+        return 0;
+    }
+    
+    // Free texture data
+    free(data);
+    
+    LOG_INFO(LOG_CATEGORY_RENDERER, "Successfully generated grid texture with ID %u", texture);
+    
+    return texture;
+}
+
+// Draw a textured quad in screen coordinates
+static void draw_textured_quad(float x, float y, float width, float height, float s1, float t1, float s2, float t2) {
+    glEnable(GL_TEXTURE_2D);
+    glBegin(GL_QUADS);
+    glTexCoord2f(s1, t1); glVertex2f(x, y);
+    glTexCoord2f(s2, t1); glVertex2f(x + width, y);
+    glTexCoord2f(s2, t2); glVertex2f(x + width, y + height);
+    glTexCoord2f(s1, t2); glVertex2f(x, y + height);
+    glEnd();
+    glDisable(GL_TEXTURE_2D);
+}
+
+// Draw the grid using the texture
+static void draw_grid_texture(const Camera* camera) {
+    if (grid_texture == 0) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "Cannot draw grid texture: texture not initialized");
+        return;
+    }
+    
+    // Save current OpenGL state
+    GLboolean blend_enabled = glIsEnabled(GL_BLEND);
+    GLint blend_src, blend_dst;
+    glGetIntegerv(GL_BLEND_SRC, &blend_src);
+    glGetIntegerv(GL_BLEND_DST, &blend_dst);
+    
+    // Set up blending for transparency
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    
+    // Bind the grid texture
+    glBindTexture(GL_TEXTURE_2D, grid_texture);
+    
+    // Calculate texture coordinates based on camera position
+    float world_left = camera->position_x - camera->width / (2.0f * camera->zoom);
+    float world_top = camera->position_y - camera->height / (2.0f * camera->zoom);
+    
+    // Calculate texture coordinates
+    float tex_scale = grid_texture_scale / PIXELS_PER_METER;
+    float s1 = world_left * tex_scale;
+    float t1 = world_top * tex_scale;
+    float s2 = s1 + (camera->width / camera->zoom) * tex_scale;
+    float t2 = t1 + (camera->height / camera->zoom) * tex_scale;
+    
+    LOG_DEBUG(LOG_CATEGORY_RENDERER, "Drawing grid texture: tex_coords=(%.2f,%.2f)-(%.2f,%.2f)", 
+             s1, t1, s2, t2);
+    
+    // Enable texturing
+    glEnable(GL_TEXTURE_2D);
+    
+    // Draw the textured quad covering the entire screen
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);  // White (no tint)
+    
+    glBegin(GL_QUADS);
+    // Use normal texture coordinates now that camera handles the flipping
+    glTexCoord2f(s1, t1); glVertex2f(0, 0);
+    glTexCoord2f(s2, t1); glVertex2f(window_width, 0);
+    glTexCoord2f(s2, t2); glVertex2f(window_width, window_height);
+    glTexCoord2f(s1, t2); glVertex2f(0, window_height);
+    glEnd();
+    
+    // Disable texturing
+    glDisable(GL_TEXTURE_2D);
+    
+    // Restore previous OpenGL state
+    if (!blend_enabled) {
+        glDisable(GL_BLEND);
+    }
+    glBlendFunc(blend_src, blend_dst);
+    
+    // Check for OpenGL errors
+    GLenum error = glGetError();
+    if (error != GL_NO_ERROR) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "OpenGL error when drawing grid texture: %d", error);
+    }
+}
+
+// Draw a textured rectangle in world space
+static void draw_textured_world_rectangle(const Camera* camera, float x, float y, float width, float height, 
+                                         GLuint texture, float s1, float t1, float s2, float t2) {
+    if (!camera) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "Cannot draw textured world rectangle: camera is NULL");
+        return;
+    }
+    
+    // Convert world coordinates to screen coordinates
+    float screen_x, screen_y, screen_width, screen_height;
+    
+    // Convert bottom-left corner
+    camera_world_to_screen(camera, x - width/2, y - height/2, &screen_x, &screen_y);
+    
+    // Convert top-right corner
+    float screen_right, screen_top;
+    camera_world_to_screen(camera, x + width/2, y + height/2, &screen_right, &screen_top);
+    
+    // Calculate width and height in screen space
+    screen_width = screen_right - screen_x;
+    screen_height = screen_top - screen_y;
+    
+    // Save current OpenGL state
+    GLboolean texture_enabled = glIsEnabled(GL_TEXTURE_2D);
+    GLboolean blend_enabled = glIsEnabled(GL_BLEND);
+    
+    // Enable texturing and blending
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    
+    // Bind the texture
+    glBindTexture(GL_TEXTURE_2D, texture);
+    
+    // Draw the textured quad
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);  // No tint
+    
+    glBegin(GL_QUADS);
+    // Use normal texture coordinates now that camera handles the flipping
+    glTexCoord2f(s1, t1); glVertex2f(screen_x, screen_y);
+    glTexCoord2f(s2, t1); glVertex2f(screen_x + screen_width, screen_y);
+    glTexCoord2f(s2, t2); glVertex2f(screen_x + screen_width, screen_y + screen_height);
+    glTexCoord2f(s1, t2); glVertex2f(screen_x, screen_y + screen_height);
+    glEnd();
+    
+    // Restore previous OpenGL state
+    if (!texture_enabled) {
+        glDisable(GL_TEXTURE_2D);
+    }
+    if (!blend_enabled) {
+        glDisable(GL_BLEND);
+    }
+    
+    // Check for OpenGL errors
+    GLenum error = glGetError();
+    if (error != GL_NO_ERROR) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "OpenGL error when drawing textured world rectangle: %d", error);
+    }
+}
+
 // Render the game state
 void renderer_draw_game(const GameState* state) {
     if (!state) {
@@ -417,6 +726,10 @@ void renderer_draw_game(const GameState* state) {
     // Get the current camera
     const Camera* camera = camera_get_current();
     
+    // Clear the screen with black
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    
     // Set up orthographic projection
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -425,27 +738,33 @@ void renderer_draw_game(const GameState* state) {
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
     
-    // Draw world grid (1 meter spacing)
-    draw_world_grid(camera, 1.0f, 0.3f, 0.3f, 0.3f);  // Lighter gray for better visibility
+    // Draw solid black background
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_BLEND);
+    glColor3f(0.0f, 0.0f, 0.0f);
     
-    // Draw ground (green rectangle at y=0)
-    float ground_width = 100.0f; // 100 meters wide
-    float ground_height = 1.0f;  // 1 meter tall
-    draw_world_rectangle(camera, 0.0f, 0.5f, ground_width, ground_height, 0.0f, 0.7f, 0.0f);  // Brighter green
+    glBegin(GL_QUADS);
+    glVertex2f(0, 0);
+    glVertex2f(window_width, 0);
+    glVertex2f(window_width, window_height);
+    glVertex2f(0, window_height);
+    glEnd();
     
-    // Draw player (1x2 meter red rectangle)
-    // Black outline
-    draw_world_rectangle(camera, state->player.position_x, state->player.position_y, 1.1f, 2.1f, 0.3f, 0.3f, 0.3f);
+    // Draw world grid using texture (eliminates jitter)
+    draw_grid_texture(camera);
     
-    // Red player
-    draw_world_rectangle(camera, state->player.position_x, state->player.position_y, 1.0f, 2.0f, 1.0f, 0.2f, 0.2f);  // Brighter red
+    // Draw ground with texture (100 meters wide, 1 meter tall)
+    float ground_width = 100.0f;
+    float ground_height = 1.0f;
     
-    // Draw player eyes (to show direction)
-    draw_world_rectangle(camera, state->player.position_x - 0.2f, state->player.position_y - 0.5f, 0.2f, 0.2f, 1.0f, 1.0f, 1.0f);
-    draw_world_rectangle(camera, state->player.position_x + 0.2f, state->player.position_y - 0.5f, 0.2f, 0.2f, 1.0f, 1.0f, 1.0f);
+    // Calculate texture coordinates for ground (repeat texture)
+    float ground_tex_repeat = ground_width / 10.0f;  // Repeat every 10 meters
+    draw_textured_world_rectangle(camera, 0.0f, 0.5f, ground_width, ground_height, 
+                                 ground_texture, 0.0f, 0.0f, ground_tex_repeat, 1.0f);
     
-    // Draw coordinate axes
-    draw_coordinate_axes(camera);
+    // Draw player with texture (1x2 meter rectangle)
+    draw_textured_world_rectangle(camera, state->player.position_x, state->player.position_y, 
+                                 1.0f, 2.0f, player_texture, 0.0f, 0.0f, 1.0f, 1.0f);
     
     // Draw HUD (screen coordinates)
     char position_text[64];
@@ -503,4 +822,158 @@ void renderer_get_window_size(int* width, int* height) {
 // Process input events
 void renderer_process_input(void) {
     glfwPollEvents();
+}
+
+// Generate a ground texture with grass pattern
+static GLuint generate_ground_texture(int size) {
+    // Create texture data (RGBA format)
+    unsigned char* data = (unsigned char*)calloc(size * size * 4, sizeof(unsigned char));
+    if (!data) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "Failed to allocate memory for ground texture");
+        return 0;
+    }
+    
+    // Fill with grass pattern (dark green base with lighter green spots)
+    for (int y = 0; y < size; y++) {
+        for (int x = 0; x < size; x++) {
+            int index = (y * size + x) * 4;
+            
+            // Base dark green color
+            data[index + 0] = 30;     // R
+            data[index + 1] = 100;    // G
+            data[index + 2] = 30;     // B
+            data[index + 3] = 255;    // A (fully opaque)
+            
+            // Add some noise/variation
+            float noise = (float)rand() / RAND_MAX;
+            if (noise > 0.7f) {
+                // Lighter green spots
+                data[index + 0] = 40;     // R
+                data[index + 1] = 140;    // G
+                data[index + 2] = 40;     // B
+            }
+            
+            // Add some darker spots
+            if (noise < 0.2f) {
+                data[index + 0] = 20;     // R
+                data[index + 1] = 80;     // G
+                data[index + 2] = 20;     // B
+            }
+        }
+    }
+    
+    // Create OpenGL texture
+    GLuint texture_id;
+    glGenTextures(1, &texture_id);
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    
+    // Set texture parameters
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    
+    // Upload texture data
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    
+    // Free memory
+    free(data);
+    
+    // Check for errors
+    GLenum error = glGetError();
+    if (error != GL_NO_ERROR) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "OpenGL error when creating ground texture: %d", error);
+        glDeleteTextures(1, &texture_id);
+        return 0;
+    }
+    
+    LOG_INFO(LOG_CATEGORY_RENDERER, "Created ground texture with ID %u, size %dx%d", texture_id, size, size);
+    return texture_id;
+}
+
+// Generate a player texture (simple character)
+static GLuint generate_player_texture(int size) {
+    // Create texture data (RGBA format)
+    unsigned char* data = (unsigned char*)calloc(size * size * 4, sizeof(unsigned char));
+    if (!data) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "Failed to allocate memory for player texture");
+        return 0;
+    }
+    
+    // Fill with red character with white eyes
+    for (int y = 0; y < size; y++) {
+        for (int x = 0; x < size; x++) {
+            int index = (y * size + x) * 4;
+            
+            // Normalize coordinates to [0,1] range
+            float nx = (float)x / size;
+            float ny = (float)y / size;
+            
+            // Default: transparent
+            data[index + 0] = 0;      // R
+            data[index + 1] = 0;      // G
+            data[index + 2] = 0;      // B
+            data[index + 3] = 0;      // A (transparent)
+            
+            // Body (red rectangle)
+            if (nx >= 0.1f && nx <= 0.9f && ny >= 0.1f && ny <= 0.9f) {
+                data[index + 0] = 220;    // R
+                data[index + 1] = 50;     // G
+                data[index + 2] = 50;     // B
+                data[index + 3] = 255;    // A (opaque)
+                
+                // Add some shading
+                if (nx < 0.3f) {
+                    // Darker on left side
+                    data[index + 0] = 180;
+                    data[index + 1] = 40;
+                    data[index + 2] = 40;
+                }
+                
+                // Eyes (white circles) - moved to lower part of face (0.35f instead of 0.65f)
+                float eye_radius = 0.08f;
+                float left_eye_x = 0.35f;
+                float right_eye_x = 0.65f;
+                float eye_y = 0.35f;  // Moved eyes to lower part of face
+                
+                float dist_left = sqrtf((nx - left_eye_x) * (nx - left_eye_x) + (ny - eye_y) * (ny - eye_y));
+                float dist_right = sqrtf((nx - right_eye_x) * (nx - right_eye_x) + (ny - eye_y) * (ny - eye_y));
+                
+                if (dist_left < eye_radius || dist_right < eye_radius) {
+                    data[index + 0] = 255;    // R
+                    data[index + 1] = 255;    // G
+                    data[index + 2] = 255;    // B
+                    data[index + 3] = 255;    // A
+                }
+            }
+        }
+    }
+    
+    // Create OpenGL texture
+    GLuint texture_id;
+    glGenTextures(1, &texture_id);
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    
+    // Set texture parameters
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    
+    // Upload texture data
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    
+    // Free memory
+    free(data);
+    
+    // Check for errors
+    GLenum error = glGetError();
+    if (error != GL_NO_ERROR) {
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "OpenGL error when creating player texture: %d", error);
+        glDeleteTextures(1, &texture_id);
+        return 0;
+    }
+    
+    LOG_INFO(LOG_CATEGORY_RENDERER, "Created player texture with ID %u, size %dx%d", texture_id, size, size);
+    return texture_id;
 } 

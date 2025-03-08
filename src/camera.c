@@ -10,7 +10,7 @@ static Camera camera;
 // Initialize the camera system
 void camera_init(float width, float height) {
     camera.position_x = 0.0f;
-    camera.position_y = -1.0f; // Start at player's initial position
+    camera.position_y = -1.0f; // Fixed Y position (ground level is at y=0, player height is 2.0)
     camera.target_x = 0.0f;
     camera.target_y = -1.0f;
     camera.zoom = 50.0f;  // 50 pixels per meter
@@ -33,21 +33,24 @@ void camera_update(double dt, void* user_data) {
     
     // Calculate the target position (player position)
     float target_x = state->player.position_x;
-    float target_y = state->player.position_y;
+    
+    // For Y position, we'll use a fixed value to keep the ground level stable
+    // This prevents the camera from following the player during jumps
+    float target_y = -1.0f;  // Fixed Y position (same as initial camera position)
     
     // Calculate the pixel-aligned camera position
     // This ensures the camera position is always aligned to pixel boundaries
     // which prevents jittering when rendering the grid and axes
     float pixel_x = target_x * camera.zoom;
-    float pixel_y = target_y * camera.zoom;
     
     // Round to nearest pixel
     pixel_x = roundf(pixel_x);
-    pixel_y = roundf(pixel_y);
     
     // Convert back to world coordinates
     camera.position_x = pixel_x / camera.zoom;
-    camera.position_y = pixel_y / camera.zoom;
+    
+    // Set Y position directly (no pixel alignment needed since it's fixed)
+    camera.position_y = target_y;
     
     // Also update target position (for consistency)
     camera.target_x = target_x;
@@ -55,15 +58,12 @@ void camera_update(double dt, void* user_data) {
     
     // Debug output (only when camera moves significantly)
     static float last_x = 0.0f;
-    static float last_y = 0.0f;
     float dx = camera.position_x - last_x;
-    float dy = camera.position_y - last_y;
     
-    if (fabs(dx) > 0.1f || fabs(dy) > 0.1f) {
+    if (fabs(dx) > 0.1f) {
         LOG_DEBUG(LOG_CATEGORY_CAMERA, "Position: (%.2f, %.2f), Pixel-aligned: (%.2f, %.2f)",
                target_x, target_y, camera.position_x, camera.position_y);
         last_x = camera.position_x;
-        last_y = camera.position_y;
     }
 }
 
@@ -83,8 +83,9 @@ void camera_world_to_screen(const Camera* camera, float world_x, float world_y, 
     float offset_y = world_y - camera->position_y;
     
     // Apply zoom and center on screen
+    // Flip the y-axis so that positive y in world space goes up on screen
     *screen_x = (offset_x * camera->zoom) + (camera->width / 2.0f);
-    *screen_y = (offset_y * camera->zoom) + (camera->height / 2.0f);
+    *screen_y = (camera->height / 2.0f) - (offset_y * camera->zoom);  // Flipped y-axis
 }
 
 // Convert screen coordinates to world coordinates
@@ -95,7 +96,8 @@ void camera_screen_to_world(const Camera* camera, float screen_x, float screen_y
     
     // Calculate the offset from the screen center
     float offset_x = screen_x - (camera->width / 2.0f);
-    float offset_y = screen_y - (camera->height / 2.0f);
+    // Flip the y-axis to match our world-to-screen conversion
+    float offset_y = (camera->height / 2.0f) - screen_y;
     
     // Apply inverse zoom and add camera position
     *world_x = (offset_x / camera->zoom) + camera->position_x;
