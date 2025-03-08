@@ -206,13 +206,21 @@ static void execute_task(Task* task, double current_time_ms) {
         return;
     }
     
-    double dt = (task->last_execution_time > 0) 
-              ? (current_time_ms - task->last_execution_time) 
-              : TASK_INTERVAL_MS[task->priority];
+    double dt;
     
-    // Cap dt to a reasonable value to prevent huge jumps after long pauses
-    if (dt > 1000.0) {  // Cap at 1 second
+    // For physics tasks, always use the fixed time step
+    if (task->priority == TASK_PRIORITY_PHYSICS_AI) {
         dt = TASK_INTERVAL_MS[task->priority];
+    } else {
+        // For other tasks, calculate dt normally
+        dt = (task->last_execution_time > 0) 
+            ? (current_time_ms - task->last_execution_time) 
+            : TASK_INTERVAL_MS[task->priority];
+        
+        // Cap dt to a reasonable value to prevent huge jumps after long pauses
+        if (dt > 1000.0) {  // Cap at 1 second
+            dt = TASK_INTERVAL_MS[task->priority];
+        }
     }
     
     double start_time_ms = scheduler_get_time_ms();

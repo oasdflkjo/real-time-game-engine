@@ -7,9 +7,9 @@
 
 // Task priorities and frequencies
 typedef enum {
-    TASK_PRIORITY_PHYSICS_AI = 0,    // 100Hz (10ms)
-    TASK_PRIORITY_ANIMATION,         // 160Hz (6.25ms)
-    TASK_PRIORITY_RENDER_AUDIO,      // 160Hz (6.25ms)
+    TASK_PRIORITY_PHYSICS_AI = 0,    // 60Hz (16.67ms) - Fixed time step
+    TASK_PRIORITY_ANIMATION,         // 165Hz (6.06ms)
+    TASK_PRIORITY_RENDER_AUDIO,      // 165Hz (6.06ms)
     TASK_PRIORITY_BACKGROUND,        // 10Hz (100ms)
     TASK_PRIORITY_COUNT
 } TaskPriority;
@@ -24,9 +24,9 @@ static const double TASK_BUDGET_MS[TASK_PRIORITY_COUNT] = {
 
 // Task frequencies in milliseconds
 static const double TASK_INTERVAL_MS[TASK_PRIORITY_COUNT] = {
-    10.0,   // Physics & AI: 100Hz (10ms)
-    6.25,   // Animation: 160Hz (6.25ms)
-    6.25,   // Render & Audio: 160Hz (6.25ms)
+    16.67,  // Physics & AI: 60Hz (16.67ms) - Fixed time step
+    6.06,   // Animation: 165Hz (6.06ms)
+    6.06,   // Render & Audio: 165Hz (6.06ms)
     100.0   // Background: 10Hz (100ms)
 };
 

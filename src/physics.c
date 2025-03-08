@@ -6,12 +6,15 @@
 
 // Physics constants in SI units
 #define GRAVITY 9.81f          // m/s²
-#define PLAYER_SPEED 5.0f      // m/s
+#define PLAYER_SPEED 20.0f      // m/s
 #define JUMP_VELOCITY 7.0f     // m/s
 #define PLAYER_WIDTH 1.0f      // m
 #define PLAYER_HEIGHT 2.0f     // m
 #define GROUND_Y 0.0f          // m (ground is at y=0)
 #define WORLD_WIDTH 100.0f     // m
+
+// Fixed physics time step (in seconds)
+#define FIXED_TIME_STEP 0.016f  // ~60Hz
 
 // Input state
 static struct {
@@ -55,20 +58,16 @@ void physics_apply_input(bool move_left, bool move_right, bool jump) {
     }
 }
 
-// Update physics (to be called by the scheduler)
+// Update physics (to be called by the scheduler at fixed intervals)
 void physics_update(double dt, void* user_data) {
-    // Limit the time step to prevent extreme movements
-    float safe_dt = (float)dt;
-    if (safe_dt > 0.1f) {
-        // Warning removed to prevent console spam
-        // LOG_WARNING(LOG_CATEGORY_PHYSICS, "Limiting large time step: %.3f -> 0.1 seconds", safe_dt);
-        safe_dt = 0.1f;
-    }
-    
     // Begin writing to the game state
     GameState* state = game_state_begin_write();
     
-    // Update player horizontal movement
+    // Store previous position for logging
+    float prev_x = state->player.position_x;
+    float prev_y = state->player.position_y;
+    
+    // Update player horizontal movement with fixed time step
     if (input.move_left) {
         state->player.velocity_x = -PLAYER_SPEED;
     } else if (input.move_right) {
@@ -91,15 +90,12 @@ void physics_update(double dt, void* user_data) {
         LOG_INFO(LOG_CATEGORY_PHYSICS, "Player jumped with velocity %.2f m/s", JUMP_VELOCITY);
     }
     
-    // Apply gravity
-    state->player.velocity_y += GRAVITY * safe_dt;
+    // Apply gravity with fixed time step
+    state->player.velocity_y += GRAVITY * FIXED_TIME_STEP;
     
-    // Update player position
-    float prev_x = state->player.position_x;
-    float prev_y = state->player.position_y;
-    
-    state->player.position_x += state->player.velocity_x * safe_dt;
-    state->player.position_y += state->player.velocity_y * safe_dt;
+    // Update player position with fixed time step
+    state->player.position_x += state->player.velocity_x * FIXED_TIME_STEP;
+    state->player.position_y += state->player.velocity_y * FIXED_TIME_STEP;
     
     // Check ground collision
     // Player's feet are at position_y + PLAYER_HEIGHT/2
@@ -122,8 +118,12 @@ void physics_update(double dt, void* user_data) {
         state->player.velocity_x = 0.0f;
     }
     
-    // Update game time
-    state->game_time += safe_dt;
+    // Update camera position to match player position
+    state->camera_x = state->player.position_x;
+    state->camera_y = state->player.position_y;
+    
+    // Update game time with fixed time step
+    state->game_time += FIXED_TIME_STEP;
     
     // Finish writing to the game state
     game_state_end_write();
@@ -135,10 +135,10 @@ void physics_update(double dt, void* user_data) {
     
     if ((fabs(dx) > 0.01f || fabs(dy) > 0.01f) && 
         (state->game_time - last_debug_time > 0.5)) {
-        LOG_DEBUG(LOG_CATEGORY_PHYSICS, "Updated: pos=(%.2f, %.2f) m, vel=(%.2f, %.2f) m/s, moved=(%.2f, %.2f) m, dt=%.3fs",
+        LOG_DEBUG(LOG_CATEGORY_PHYSICS, "Updated: pos=(%.2f, %.2f) m, vel=(%.2f, %.2f) m/s, moved=(%.2f, %.2f) m, fixed_dt=%.3fs",
                state->player.position_x, state->player.position_y,
                state->player.velocity_x, state->player.velocity_y,
-               dx, dy, safe_dt);
+               dx, dy, FIXED_TIME_STEP);
         last_debug_time = state->game_time;
     }
 } 

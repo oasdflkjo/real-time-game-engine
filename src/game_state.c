@@ -75,6 +75,8 @@ void game_state_end_write(void) {
 }
 
 // Interpolate between physics states for smooth rendering
+// NOTE: This function is kept for compatibility but no longer performs interpolation
+// with the fixed time step architecture
 void game_state_interpolate(float alpha, GameState* result) {
     if (!result) {
         LOG_ERROR(LOG_CATEGORY_GAME_STATE, "Null result pointer passed to game_state_interpolate");
@@ -83,31 +85,14 @@ void game_state_interpolate(float alpha, GameState* result) {
     
     EnterCriticalSection(&state_lock);
     const GameState* current = &state_buffers[current_buffer];
-    const GameState* previous = &state_buffers[previous_buffer];
     LeaveCriticalSection(&state_lock);
     
-    // Clamp alpha to [0, 1]
-    if (alpha < 0.0f) alpha = 0.0f;
-    if (alpha > 1.0f) alpha = 1.0f;
+    // With fixed time steps, we just use the current state directly
+    *result = *current;
     
-    // Interpolate player position
-    result->player.position_x = previous->player.position_x + 
-                               (current->player.position_x - previous->player.position_x) * alpha;
-    result->player.position_y = previous->player.position_y + 
-                               (current->player.position_y - previous->player.position_y) * alpha;
+    // Ensure camera position matches player position
+    result->camera_x = result->player.position_x;
+    result->camera_y = result->player.position_y;
     
-    // Copy non-interpolated values
-    result->player.velocity_x = current->player.velocity_x;
-    result->player.velocity_y = current->player.velocity_y;
-    result->player.is_jumping = current->player.is_jumping;
-    result->player.is_grounded = current->player.is_grounded;
-    
-    // Interpolate camera position
-    result->camera_x = previous->camera_x + (current->camera_x - previous->camera_x) * alpha;
-    result->camera_y = previous->camera_y + (current->camera_y - previous->camera_y) * alpha;
-    
-    // Use current game time
-    result->game_time = current->game_time;
-    
-    LOG_DEBUG(LOG_CATEGORY_GAME_STATE, "Interpolated state with alpha=%.3f", alpha);
+    LOG_DEBUG(LOG_CATEGORY_GAME_STATE, "Using current state directly (fixed time step)");
 } 

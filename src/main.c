@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
     }
     
     LOG_INFO(LOG_CATEGORY_GENERAL, "====================================================");
-    LOG_INFO(LOG_CATEGORY_GENERAL, "Controls: A = Move Left, D = Move Right, SPACE = Jump, ESC = Quit");
+    LOG_INFO(LOG_CATEGORY_GENERAL, "Controls: A = Move Left, D = Move Right, SPACE = Jump, ESC = Quit, F11 = Toggle Fullscreen, F10 = Toggle VSync");
     LOG_INFO(LOG_CATEGORY_GENERAL, "====================================================");
     
     // Set log levels
@@ -174,16 +174,19 @@ int main(int argc, char** argv) {
     scheduler_init();
     game_state_init();
     
-    // Window dimensions
-    int window_width = 800;
-    int window_height = 600;
+    // Initial window dimensions (may be overridden by fullscreen mode)
+    int window_width = 1280;
+    int window_height = 720;
     
     if (!renderer_init(window_width, window_height)) {
         LOG_ERROR(LOG_CATEGORY_RENDERER, "Failed to initialize renderer");
         return 1;
     }
     
-    // Initialize camera with window dimensions
+    // Get the actual window dimensions after initialization
+    renderer_get_window_size(&window_width, &window_height);
+    
+    // Initialize camera with actual window dimensions
     camera_init((float)window_width, (float)window_height);
     
     physics_init();

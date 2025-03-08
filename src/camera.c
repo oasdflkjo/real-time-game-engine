@@ -7,9 +7,6 @@
 // Camera state
 static Camera camera;
 
-// Camera smoothing factor (lower = smoother, higher = more responsive)
-#define CAMERA_SMOOTHING 3.0f
-
 // Initialize the camera system
 void camera_init(float width, float height) {
     camera.position_x = 0.0f;
@@ -34,35 +31,25 @@ void camera_update(double dt, void* user_data) {
     // Get the current game state
     const GameState* state = game_state_get_read();
     
-    // Set the target to the player's position
+    // Directly set camera position to player position without any smoothing or delay
+    camera.position_x = state->player.position_x;
+    camera.position_y = state->player.position_y;
+    
+    // Also update target position (for consistency)
     camera.target_x = state->player.position_x;
     camera.target_y = state->player.position_y;
     
-    // Smoothly move the camera towards the target
-    float dx = camera.target_x - camera.position_x;
-    float dy = camera.target_y - camera.position_y;
-    
-    // Limit the time step to prevent extreme movements
-    float safe_dt = (float)dt;
-    if (safe_dt > 0.1f) safe_dt = 0.1f;
-    
-    // Apply smoothing with a clamped delta time
-    camera.position_x += dx * CAMERA_SMOOTHING * safe_dt;
-    camera.position_y += dy * CAMERA_SMOOTHING * safe_dt;
-    
-    // Ensure camera doesn't drift too far from target
-    if (fabs(dx) > 10.0f || fabs(dy) > 10.0f) {
-        // If too far, snap back to target
-        camera.position_x = camera.target_x;
-        camera.position_y = camera.target_y;
-        LOG_WARNING(LOG_CATEGORY_CAMERA, "Position reset to target due to large distance");
-    }
-    
     // Debug output (only when camera moves significantly)
+    static float last_x = 0.0f;
+    static float last_y = 0.0f;
+    float dx = camera.position_x - last_x;
+    float dy = camera.position_y - last_y;
+    
     if (fabs(dx) > 0.1f || fabs(dy) > 0.1f) {
-        LOG_DEBUG(LOG_CATEGORY_CAMERA, "Position: (%.2f, %.2f), Target: (%.2f, %.2f)",
-               camera.position_x, camera.position_y,
-               camera.target_x, camera.target_y);
+        LOG_DEBUG(LOG_CATEGORY_CAMERA, "Position: (%.2f, %.2f)",
+               camera.position_x, camera.position_y);
+        last_x = camera.position_x;
+        last_y = camera.position_y;
     }
 }
 
@@ -99,4 +86,12 @@ void camera_screen_to_world(const Camera* camera, float screen_x, float screen_y
     // Apply inverse zoom and add camera position
     *world_x = (offset_x / camera->zoom) + camera->position_x;
     *world_y = (offset_y / camera->zoom) + camera->position_y;
+}
+
+// Update camera dimensions when window is resized
+void camera_update_dimensions(float width, float height) {
+    camera.width = width;
+    camera.height = height;
+    
+    LOG_INFO(LOG_CATEGORY_CAMERA, "Updated dimensions to %.1fx%.1f", width, height);
 } 

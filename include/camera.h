@@ -23,6 +23,9 @@ void camera_shutdown(void);
 // Update the camera position to follow a target
 void camera_update(double dt, void* user_data);
 
+// Update camera dimensions when window is resized
+void camera_update_dimensions(float width, float height);
+
 // Get the current camera state
 const Camera* camera_get_current(void);
 

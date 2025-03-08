@@ -6,7 +6,6 @@
 // Animation state
 static struct {
     double last_physics_time;
-    double accumulator;
     GameState render_state;
 } animation;
 
@@ -14,9 +13,8 @@ static struct {
 void animation_init(void) {
     // Reset animation state
     animation.last_physics_time = 0.0;
-    animation.accumulator = 0.0;
     
-    LOG_INFO(LOG_CATEGORY_ANIMATION, "Initialized");
+    LOG_INFO(LOG_CATEGORY_ANIMATION, "Initialized for interrupt-driven fixed time steps");
 }
 
 // Shutdown the animation system
@@ -32,40 +30,25 @@ void animation_update(double dt, void* user_data) {
     // Update the last physics time
     animation.last_physics_time = current_state->game_time;
     
-    // Reset the accumulator
-    animation.accumulator = 0.0;
-    
-    // Calculate interpolation alpha (0.0 to 1.0)
-    float alpha = (float)(animation.accumulator / TASK_INTERVAL_MS[TASK_PRIORITY_PHYSICS_AI]);
-    
-    // Interpolate between physics states
-    game_state_interpolate(alpha, &animation.render_state);
-    
-    LOG_DEBUG(LOG_CATEGORY_ANIMATION, "Updated with dt=%.3f ms, alpha=%.3f", dt * 1000.0, alpha);
+    LOG_DEBUG(LOG_CATEGORY_ANIMATION, "Updated with fixed time step");
 }
 
-// Get the interpolated game state for rendering
+// Get the current game state for rendering (no interpolation needed with fixed time steps)
 void animation_get_render_state(GameState* result) {
     if (!result) {
         LOG_ERROR(LOG_CATEGORY_ANIMATION, "Null result pointer passed to animation_get_render_state");
         return;
     }
     
-    // Get the current game state
+    // Get the current game state directly - no interpolation needed with fixed time steps
     const GameState* current_state = game_state_get_read();
     
-    // Update the accumulator
-    double current_time = current_state->game_time;
-    animation.accumulator = current_time - animation.last_physics_time;
+    // Copy the current state to the result
+    *result = *current_state;
     
-    // Calculate interpolation alpha (0.0 to 1.0)
-    float alpha = (float)(animation.accumulator / TASK_INTERVAL_MS[TASK_PRIORITY_PHYSICS_AI]);
+    // Ensure camera position exactly matches player position
+    result->camera_x = result->player.position_x;
+    result->camera_y = result->player.position_y;
     
-    // Interpolate between physics states
-    game_state_interpolate(alpha, &animation.render_state);
-    
-    // Copy the interpolated state to the result
-    *result = animation.render_state;
-    
-    LOG_DEBUG(LOG_CATEGORY_ANIMATION, "Render state prepared with alpha=%.3f", alpha);
+    LOG_DEBUG(LOG_CATEGORY_ANIMATION, "Render state prepared with fixed time step");
 } 
