@@ -177,9 +177,10 @@ bool renderer_init(int width, int height) {
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // Hide window until positioned
     }
     
-    // Create window
+    // Create window with anti-aliasing
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    glfwWindowHint(GLFW_SAMPLES, 4); // Enable 4x MSAA
     
     window = glfwCreateWindow(window_width, window_height, "Real-Time Game Engine", monitor, NULL);
     if (!window) {
@@ -212,13 +213,16 @@ bool renderer_init(int width, int height) {
         default: vsync_str = "UNKNOWN";
     }
     
+    // Enable anti-aliasing if supported
+    // Note: GL_MULTISAMPLE is automatically enabled by GLFW when using GLFW_SAMPLES
+    
     // Set viewport
     glViewport(0, 0, window_width, window_height);
     
     // Set clear color (black)
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     
-    LOG_INFO(LOG_CATEGORY_RENDERER, "Initialized with %s mode, size %dx%d (%.2f pixels per meter, VSync: %s)", 
+    LOG_INFO(LOG_CATEGORY_RENDERER, "Initialized with %s mode, size %dx%d (%.2f pixels per meter, VSync: %s, MSAA: 4x)", 
            is_fullscreen ? "fullscreen" : "windowed", window_width, window_height, PIXELS_PER_METER, vsync_str);
     
     return true;
@@ -267,19 +271,12 @@ void renderer_end_frame(void) {
 
 // Draw a rectangle at the specified position in screen coordinates
 static void draw_rectangle(float x, float y, float width, float height, float r, float g, float b) {
-    // Calculate coordinates
-    float x1 = x;
-    float y1 = y;
-    float x2 = x + width;
-    float y2 = y + height;
-    
-    // Draw rectangle
     glBegin(GL_QUADS);
     glColor3f(r, g, b);
-    glVertex2f(x1, y1);
-    glVertex2f(x2, y1);
-    glVertex2f(x2, y2);
-    glVertex2f(x1, y2);
+    glVertex2f(x, y);
+    glVertex2f(x + width, y);
+    glVertex2f(x + width, y + height);
+    glVertex2f(x, y + height);
     glEnd();
 }
 
@@ -329,6 +326,20 @@ static void draw_world_line(const Camera* camera, float x1, float y1, float x2, 
     screen_y1 = window_height - screen_y1;
     screen_y2 = window_height - screen_y2;
     
+    // For horizontal or vertical lines, ensure pixel-perfect alignment
+    bool is_horizontal = fabsf(screen_y1 - screen_y2) < 0.01f;
+    bool is_vertical = fabsf(screen_x1 - screen_x2) < 0.01f;
+    
+    if (is_horizontal) {
+        // Align horizontal lines to pixel centers
+        float y = floorf(screen_y1) + 0.5f;
+        screen_y1 = screen_y2 = y;
+    } else if (is_vertical) {
+        // Align vertical lines to pixel centers
+        float x = floorf(screen_x1) + 0.5f;
+        screen_x1 = screen_x2 = x;
+    }
+    
     // Draw line
     glBegin(GL_LINES);
     glColor3f(r, g, b);
@@ -364,10 +375,37 @@ static void draw_world_grid(const Camera* camera, float grid_size, float r, floa
     for (float y = start_y; y <= end_y; y += grid_size) {
         draw_world_line(camera, start_x, y, end_x, y, r, g, b);
     }
+}
+
+// Draw coordinate axes
+static void draw_coordinate_axes(const Camera* camera) {
+    // Get the camera position in screen space
+    float center_x, center_y;
+    camera_world_to_screen(camera, 0.0f, 0.0f, &center_x, &center_y);
     
-    // Draw coordinate axes with different colors
-    draw_world_line(camera, -100.0f, 0.0f, 100.0f, 0.0f, 1.0f, 0.0f, 0.0f); // X-axis (red)
-    draw_world_line(camera, 0.0f, -100.0f, 0.0f, 100.0f, 0.0f, 1.0f, 0.0f); // Y-axis (green)
+    // Convert to integer pixel coordinates
+    int pixel_center_x = (int)roundf(center_x);
+    int pixel_center_y = (int)roundf(window_height - center_y);
+    
+    // Set line width to exactly 1.0 for pixel-perfect lines
+    glLineWidth(1.0f);
+    
+    // Draw X-axis (red) - horizontal line through origin
+    glBegin(GL_LINES);
+    glColor3f(1.0f, 0.0f, 0.0f); // Red
+    glVertex2f(0, pixel_center_y + 0.5f);
+    glVertex2f(window_width, pixel_center_y + 0.5f);
+    glEnd();
+    
+    // Draw Y-axis (green) - vertical line through origin
+    glBegin(GL_LINES);
+    glColor3f(0.0f, 1.0f, 0.0f); // Green
+    glVertex2f(pixel_center_x + 0.5f, 0);
+    glVertex2f(pixel_center_x + 0.5f, window_height);
+    glEnd();
+    
+    // Reset line width
+    glLineWidth(1.0f);
 }
 
 // Render the game state
@@ -406,9 +444,8 @@ void renderer_draw_game(const GameState* state) {
     draw_world_rectangle(camera, state->player.position_x - 0.2f, state->player.position_y - 0.5f, 0.2f, 0.2f, 1.0f, 1.0f, 1.0f);
     draw_world_rectangle(camera, state->player.position_x + 0.2f, state->player.position_y - 0.5f, 0.2f, 0.2f, 1.0f, 1.0f, 1.0f);
     
-    // Draw coordinate axes with different colors
-    draw_world_line(camera, -100.0f, 0.0f, 100.0f, 0.0f, 1.0f, 0.0f, 0.0f); // X-axis (red)
-    draw_world_line(camera, 0.0f, -100.0f, 0.0f, 100.0f, 0.0f, 1.0f, 0.0f); // Y-axis (green)
+    // Draw coordinate axes
+    draw_coordinate_axes(camera);
     
     // Draw HUD (screen coordinates)
     char position_text[64];

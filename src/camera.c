@@ -31,13 +31,27 @@ void camera_update(double dt, void* user_data) {
     // Get the current game state
     const GameState* state = game_state_get_read();
     
-    // Directly set camera position to player position without any smoothing or delay
-    camera.position_x = state->player.position_x;
-    camera.position_y = state->player.position_y;
+    // Calculate the target position (player position)
+    float target_x = state->player.position_x;
+    float target_y = state->player.position_y;
+    
+    // Calculate the pixel-aligned camera position
+    // This ensures the camera position is always aligned to pixel boundaries
+    // which prevents jittering when rendering the grid and axes
+    float pixel_x = target_x * camera.zoom;
+    float pixel_y = target_y * camera.zoom;
+    
+    // Round to nearest pixel
+    pixel_x = roundf(pixel_x);
+    pixel_y = roundf(pixel_y);
+    
+    // Convert back to world coordinates
+    camera.position_x = pixel_x / camera.zoom;
+    camera.position_y = pixel_y / camera.zoom;
     
     // Also update target position (for consistency)
-    camera.target_x = state->player.position_x;
-    camera.target_y = state->player.position_y;
+    camera.target_x = target_x;
+    camera.target_y = target_y;
     
     // Debug output (only when camera moves significantly)
     static float last_x = 0.0f;
@@ -46,8 +60,8 @@ void camera_update(double dt, void* user_data) {
     float dy = camera.position_y - last_y;
     
     if (fabs(dx) > 0.1f || fabs(dy) > 0.1f) {
-        LOG_DEBUG(LOG_CATEGORY_CAMERA, "Position: (%.2f, %.2f)",
-               camera.position_x, camera.position_y);
+        LOG_DEBUG(LOG_CATEGORY_CAMERA, "Position: (%.2f, %.2f), Pixel-aligned: (%.2f, %.2f)",
+               target_x, target_y, camera.position_x, camera.position_y);
         last_x = camera.position_x;
         last_y = camera.position_y;
     }
