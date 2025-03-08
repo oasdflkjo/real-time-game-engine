@@ -9,9 +9,48 @@
 #include "../include/logging.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <windows.h>
 
 // Render task function
 void render_task(double dt, void* user_data) {
+    static int consecutive_heavy_frames = 0;
+    static double last_frame_time = 0;
+    
+    // Check if the previous frame took too long
+    if (last_frame_time > 20.0) { // If last frame took more than 20ms
+        consecutive_heavy_frames++;
+        
+        // Cap the counter to prevent integer overflow
+        if (consecutive_heavy_frames > 100) {
+            consecutive_heavy_frames = 100;
+        }
+    } else {
+        // Gradually reduce the counter to avoid oscillation
+        if (consecutive_heavy_frames > 0) {
+            consecutive_heavy_frames--;
+        }
+    }
+    
+    // Skip rendering if we've had too many consecutive heavy frames
+    // This helps recover from temporary system load spikes
+    if (consecutive_heavy_frames > 5) {
+        LOG_WARNING(LOG_CATEGORY_RENDERER, "Skipping frame to recover from system load (last frame: %.2f ms)", 
+                   last_frame_time);
+        
+        // Still process input events to keep the game responsive
+        renderer_process_input();
+        
+        // Check if we should quit
+        if (renderer_should_close()) {
+            scheduler_request_quit();
+        }
+        
+        return;
+    }
+    
+    // Measure frame time
+    double start_time = scheduler_get_time_ms();
+    
     // Begin frame
     renderer_begin_frame();
     
@@ -31,6 +70,15 @@ void render_task(double dt, void* user_data) {
     // Check if we should quit
     if (renderer_should_close()) {
         scheduler_request_quit();
+    }
+    
+    // Calculate frame time
+    double end_time = scheduler_get_time_ms();
+    last_frame_time = end_time - start_time;
+    
+    // Cap the frame time to a reasonable value to prevent cascading issues
+    if (last_frame_time > 1000.0) {
+        last_frame_time = 20.0; // Cap at 20ms if something went very wrong
     }
 }
 
@@ -59,10 +107,50 @@ void background_task(double dt, void* user_data) {
 }
 
 int main(int argc, char** argv) {
-    // Initialize logging first
+    // Initialize logging first - must be done before any logging calls
     logging_init();
     
     LOG_INFO(LOG_CATEGORY_GENERAL, "Real-Time Game Engine - Interrupt-Driven Architecture");
+    
+    // Set process priority to high for better real-time performance
+    HANDLE process_handle = GetCurrentProcess();
+    SetPriorityClass(process_handle, HIGH_PRIORITY_CLASS);
+    
+    // Set thread affinity to avoid CPU core switching
+    HANDLE thread_handle = GetCurrentThread();
+    SetThreadPriority(thread_handle, THREAD_PRIORITY_HIGHEST);
+    
+    // Get the system's processor count
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+    DWORD processorCount = sysInfo.dwNumberOfProcessors;
+    
+    // If we have at least 2 cores, reserve one core for the game
+    // and leave the others for the OS
+    if (processorCount > 1) {
+        // Use the second core (index 1) for our game thread
+        // This leaves core 0 for Windows system processes
+        DWORD_PTR affinityMask = (1 << 1);
+        SetThreadAffinityMask(thread_handle, affinityMask);
+        LOG_INFO(LOG_CATEGORY_GENERAL, "Set thread affinity to processor 1 (of %d available)", processorCount);
+    }
+    
+    // Disable Windows timer coalescing to improve timer precision
+    // This requires Windows 8 or later
+    typedef BOOL (WINAPI *SetTimerResolutionFuncType)(ULONG RequestedResolutionInMicroseconds, BOOLEAN Set, PULONG ActualResolutionInMicroseconds);
+    
+    HMODULE ntdllHandle = LoadLibraryA("ntdll.dll");
+    if (ntdllHandle) {
+        SetTimerResolutionFuncType NtSetTimerResolution = (SetTimerResolutionFuncType)GetProcAddress(ntdllHandle, "NtSetTimerResolution");
+        if (NtSetTimerResolution) {
+            ULONG actualResolution;
+            // Request 1ms resolution (1000 microseconds)
+            if (NtSetTimerResolution(1000, TRUE, &actualResolution)) {
+                LOG_INFO(LOG_CATEGORY_GENERAL, "Set Windows timer resolution to %.2f ms", actualResolution / 10000.0);
+            }
+        }
+    }
+    
     LOG_INFO(LOG_CATEGORY_GENERAL, "====================================================");
     LOG_INFO(LOG_CATEGORY_GENERAL, "Controls: A = Move Left, D = Move Right, SPACE = Jump, ESC = Quit");
     LOG_INFO(LOG_CATEGORY_GENERAL, "====================================================");
