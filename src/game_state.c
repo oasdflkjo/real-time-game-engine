@@ -1,4 +1,5 @@
 #include "../include/game_state.h"
+#include "../include/logging.h"
 #include <stdio.h>
 #include <string.h>
 #include <windows.h>
@@ -18,20 +19,20 @@ void game_state_init(void) {
     // Clear all state buffers
     memset(state_buffers, 0, sizeof(state_buffers));
     
-    // Set initial player position
+    // Set initial player position (in meters)
     for (int i = 0; i < 3; i++) {
-        state_buffers[i].player.position_x = 100.0f;
-        state_buffers[i].player.position_y = 100.0f;
+        state_buffers[i].player.position_x = 0.0f;  // Center of the world
+        state_buffers[i].player.position_y = -1.0f; // 1 meter above the ground (since player is 2m tall)
         state_buffers[i].player.is_grounded = true;
     }
     
-    printf("[GameState] Initialized with double-buffering\n");
+    LOG_INFO(LOG_CATEGORY_GAME_STATE, "Initialized with SI units (meters)");
 }
 
 // Shutdown the game state system
 void game_state_shutdown(void) {
     DeleteCriticalSection(&state_lock);
-    printf("[GameState] Shutdown\n");
+    LOG_INFO(LOG_CATEGORY_GAME_STATE, "Shutdown");
 }
 
 // Get a read-only pointer to the current game state
@@ -50,6 +51,7 @@ GameState* game_state_begin_write(void) {
     memcpy(&state_buffers[write_buffer], &state_buffers[current_buffer], sizeof(GameState));
     LeaveCriticalSection(&state_lock);
     
+    LOG_DEBUG(LOG_CATEGORY_GAME_STATE, "Begin writing to buffer %d", write_buffer);
     return &state_buffers[write_buffer];
 }
 
@@ -67,11 +69,15 @@ void game_state_end_write(void) {
     write_buffer = previous_buffer;
     
     LeaveCriticalSection(&state_lock);
+    
+    LOG_DEBUG(LOG_CATEGORY_GAME_STATE, "End writing, current=%d, previous=%d, write=%d", 
+             current_buffer, previous_buffer, write_buffer);
 }
 
 // Interpolate between physics states for smooth rendering
 void game_state_interpolate(float alpha, GameState* result) {
     if (!result) {
+        LOG_ERROR(LOG_CATEGORY_GAME_STATE, "Null result pointer passed to game_state_interpolate");
         return;
     }
     
@@ -102,4 +108,6 @@ void game_state_interpolate(float alpha, GameState* result) {
     
     // Use current game time
     result->game_time = current->game_time;
+    
+    LOG_DEBUG(LOG_CATEGORY_GAME_STATE, "Interpolated state with alpha=%.3f", alpha);
 } 

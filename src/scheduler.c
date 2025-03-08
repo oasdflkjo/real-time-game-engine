@@ -1,4 +1,5 @@
 #include "../include/scheduler.h"
+#include "../include/logging.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,13 +23,13 @@ void scheduler_init(void) {
     QueryPerformanceFrequency(&scheduler.frequency);
     QueryPerformanceCounter(&scheduler.start_time);
     
-    printf("[Scheduler] Initialized with timer frequency: %lld Hz\n", 
+    LOG_INFO(LOG_CATEGORY_SCHEDULER, "Initialized with timer frequency: %lld Hz", 
            scheduler.frequency.QuadPart);
 }
 
 // Shutdown the scheduler
 void scheduler_shutdown(void) {
-    printf("[Scheduler] Shutting down with %d tasks\n", scheduler.task_count);
+    LOG_INFO(LOG_CATEGORY_SCHEDULER, "Shutting down with %d tasks", scheduler.task_count);
     scheduler.task_count = 0;
 }
 
@@ -63,12 +64,12 @@ void scheduler_sleep_until(double target_time_ms) {
 // Add a task to the scheduler
 int scheduler_add_task(TaskFunction function, void* user_data, TaskPriority priority, const char* name) {
     if (scheduler.task_count >= MAX_TASKS) {
-        printf("[Scheduler] ERROR: Cannot add task, maximum task count reached\n");
+        LOG_ERROR(LOG_CATEGORY_SCHEDULER, "Cannot add task, maximum task count reached");
         return -1;
     }
     
     if (priority >= TASK_PRIORITY_COUNT) {
-        printf("[Scheduler] ERROR: Invalid task priority: %d\n", priority);
+        LOG_ERROR(LOG_CATEGORY_SCHEDULER, "Invalid task priority: %d", priority);
         return -1;
     }
     
@@ -83,7 +84,7 @@ int scheduler_add_task(TaskFunction function, void* user_data, TaskPriority prio
     task->is_enabled = true;
     task->name = name;
     
-    printf("[Scheduler] Added task '%s' with priority %d, interval %.2f ms, budget %.2f ms\n",
+    LOG_INFO(LOG_CATEGORY_SCHEDULER, "Added task '%s' with priority %d, interval %.2f ms, budget %.2f ms",
            name, priority, TASK_INTERVAL_MS[priority], TASK_BUDGET_MS[priority]);
     
     return task_id;
@@ -92,11 +93,11 @@ int scheduler_add_task(TaskFunction function, void* user_data, TaskPriority prio
 // Remove a task from the scheduler
 void scheduler_remove_task(int task_id) {
     if (task_id < 0 || task_id >= scheduler.task_count) {
-        printf("[Scheduler] ERROR: Invalid task ID: %d\n", task_id);
+        LOG_ERROR(LOG_CATEGORY_SCHEDULER, "Invalid task ID: %d", task_id);
         return;
     }
     
-    printf("[Scheduler] Removing task '%s'\n", scheduler.tasks[task_id].name);
+    LOG_INFO(LOG_CATEGORY_SCHEDULER, "Removing task '%s'", scheduler.tasks[task_id].name);
     
     // Move the last task to this position (if it's not already the last)
     if (task_id < scheduler.task_count - 1) {
@@ -109,12 +110,12 @@ void scheduler_remove_task(int task_id) {
 // Enable or disable a task
 void scheduler_enable_task(int task_id, bool enable) {
     if (task_id < 0 || task_id >= scheduler.task_count) {
-        printf("[Scheduler] ERROR: Invalid task ID: %d\n", task_id);
+        LOG_ERROR(LOG_CATEGORY_SCHEDULER, "Invalid task ID: %d", task_id);
         return;
     }
     
     scheduler.tasks[task_id].is_enabled = enable;
-    printf("[Scheduler] %s task '%s'\n", 
+    LOG_INFO(LOG_CATEGORY_SCHEDULER, "%s task '%s'", 
            enable ? "Enabled" : "Disabled", 
            scheduler.tasks[task_id].name);
 }
@@ -139,8 +140,41 @@ static void execute_task(Task* task, double current_time_ms) {
     
     // Check if the task exceeded its time budget
     if (execution_time_ms > budget_ms) {
-        printf("[Scheduler] WARNING: Task '%s' exceeded time budget: %.3f ms (budget: %.3f ms)\n",
-               task->name, execution_time_ms, budget_ms);
+        // Static variables to track warning frequency per task
+        static double warning_cooldowns[MAX_TASKS] = {0};
+        static int warning_counts[MAX_TASKS] = {0};
+        static double max_overruns[MAX_TASKS] = {0};
+        
+        // Find task index
+        int task_idx = -1;
+        for (int i = 0; i < scheduler.task_count; i++) {
+            if (&scheduler.tasks[i] == task) {
+                task_idx = i;
+                break;
+            }
+        }
+        
+        if (task_idx >= 0) {
+            warning_counts[task_idx]++;
+            max_overruns[task_idx] = (execution_time_ms > max_overruns[task_idx]) ? 
+                                     execution_time_ms : max_overruns[task_idx];
+            
+            warning_cooldowns[task_idx] -= dt;
+            if (warning_cooldowns[task_idx] <= 0.0) {
+                if (warning_counts[task_idx] > 1) {
+                    LOG_WARNING(LOG_CATEGORY_SCHEDULER, 
+                               "Task '%s' exceeded time budget %d times in the last second (max: %.3f ms, budget: %.3f ms)",
+                               task->name, warning_counts[task_idx], max_overruns[task_idx], budget_ms);
+                } else {
+                    LOG_WARNING(LOG_CATEGORY_SCHEDULER, 
+                               "Task '%s' exceeded time budget: %.3f ms (budget: %.3f ms)",
+                               task->name, execution_time_ms, budget_ms);
+                }
+                warning_cooldowns[task_idx] = 1.0; // Reset cooldown to 1 second
+                warning_counts[task_idx] = 0;      // Reset counter
+                max_overruns[task_idx] = 0;        // Reset max overrun
+            }
+        }
     }
     
     // Update task timing
@@ -150,7 +184,7 @@ static void execute_task(Task* task, double current_time_ms) {
 
 // Run the scheduler main loop
 void scheduler_run(void) {
-    printf("[Scheduler] Starting main loop with %d tasks\n", scheduler.task_count);
+    LOG_INFO(LOG_CATEGORY_SCHEDULER, "Starting main loop with %d tasks", scheduler.task_count);
     
     while (!scheduler.should_quit) {
         double current_time_ms = scheduler_get_time_ms();
@@ -183,7 +217,7 @@ void scheduler_run(void) {
         }
     }
     
-    printf("[Scheduler] Main loop exited\n");
+    LOG_INFO(LOG_CATEGORY_SCHEDULER, "Main loop exited");
 }
 
 // Check if the scheduler should quit
@@ -193,6 +227,6 @@ bool scheduler_should_quit(void) {
 
 // Request the scheduler to quit
 void scheduler_request_quit(void) {
-    printf("[Scheduler] Quit requested\n");
+    LOG_INFO(LOG_CATEGORY_SCHEDULER, "Quit requested");
     scheduler.should_quit = true;
 } 

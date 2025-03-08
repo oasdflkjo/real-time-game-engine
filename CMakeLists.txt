@@ -26,6 +26,18 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/external/cglm/include
 )
 
+# Compiler flags to disable most warnings
+if(MSVC)
+    # For Visual Studio compiler
+    add_compile_options(/W1)  # Set warning level to 1 (lowest)
+    # Disable specific warnings but keep target-related ones
+    add_compile_options(/wd4244 /wd4305 /wd4996)  # Disable conversion warnings and deprecated function warnings
+else()
+    # For GCC/Clang compilers
+    add_compile_options(-w)  # Disable all warnings
+    add_compile_options(-Wmissing-field-initializers)  # Re-enable missed target warnings
+endif()
+
 # Source files
 file(GLOB_RECURSE SOURCES "src/*.c")
 

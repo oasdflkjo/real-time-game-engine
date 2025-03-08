@@ -1,5 +1,6 @@
 #include "../include/animation.h"
 #include "../include/scheduler.h"
+#include "../include/logging.h"
 #include <stdio.h>
 
 // Animation state
@@ -15,12 +16,12 @@ void animation_init(void) {
     animation.last_physics_time = 0.0;
     animation.accumulator = 0.0;
     
-    printf("[Animation] Initialized\n");
+    LOG_INFO(LOG_CATEGORY_ANIMATION, "Initialized");
 }
 
 // Shutdown the animation system
 void animation_shutdown(void) {
-    printf("[Animation] Shutdown\n");
+    LOG_INFO(LOG_CATEGORY_ANIMATION, "Shutdown");
 }
 
 // Update animations (to be called by the scheduler)
@@ -39,11 +40,14 @@ void animation_update(double dt, void* user_data) {
     
     // Interpolate between physics states
     game_state_interpolate(alpha, &animation.render_state);
+    
+    LOG_DEBUG(LOG_CATEGORY_ANIMATION, "Updated with dt=%.3f ms, alpha=%.3f", dt * 1000.0, alpha);
 }
 
 // Get the interpolated game state for rendering
 void animation_get_render_state(GameState* result) {
     if (!result) {
+        LOG_ERROR(LOG_CATEGORY_ANIMATION, "Null result pointer passed to animation_get_render_state");
         return;
     }
     
@@ -62,4 +66,6 @@ void animation_get_render_state(GameState* result) {
     
     // Copy the interpolated state to the result
     *result = animation.render_state;
+    
+    LOG_DEBUG(LOG_CATEGORY_ANIMATION, "Render state prepared with alpha=%.3f", alpha);
 } 

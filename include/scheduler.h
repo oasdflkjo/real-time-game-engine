@@ -18,7 +18,7 @@ typedef enum {
 static const double TASK_BUDGET_MS[TASK_PRIORITY_COUNT] = {
     1.0,    // Physics & AI: 1ms
     1.0,    // Animation: 1ms
-    2.0,    // Render & Audio: 2ms
+    8.0,    // Render & Audio: 8ms (increased from 2ms)
     5.0     // Background: 5ms
 };
 

@@ -1,6 +1,7 @@
 #include "../include/input.h"
 #include "../include/physics.h"
 #include "../include/renderer.h"
+#include "../include/logging.h"
 #include <GLFW/glfw3.h>
 #include <stdio.h>
 
@@ -9,14 +10,26 @@
 #define KEY_RIGHT GLFW_KEY_D
 #define KEY_JUMP GLFW_KEY_SPACE
 
+// Key state tracking
+static struct {
+    bool left_pressed;
+    bool right_pressed;
+    bool jump_pressed;
+} key_state;
+
 // Initialize the input system
 void input_init(void) {
-    printf("[Input] Initialized with controls: A=left, D=right, SPACE=jump\n");
+    // Reset key state
+    key_state.left_pressed = false;
+    key_state.right_pressed = false;
+    key_state.jump_pressed = false;
+    
+    LOG_INFO(LOG_CATEGORY_INPUT, "Initialized with controls: A=left, D=right, SPACE=jump");
 }
 
 // Shutdown the input system
 void input_shutdown(void) {
-    printf("[Input] Shutdown\n");
+    LOG_INFO(LOG_CATEGORY_INPUT, "Shutdown");
 }
 
 // Check if a key is pressed
@@ -24,6 +37,7 @@ bool input_is_key_pressed(int key) {
     // Get the GLFW window from the renderer
     GLFWwindow* window = glfwGetCurrentContext();
     if (!window) {
+        LOG_ERROR(LOG_CATEGORY_INPUT, "No GLFW window context available");
         return false;
     }
     
@@ -33,24 +47,26 @@ bool input_is_key_pressed(int key) {
 // Update input state (to be called by the scheduler)
 void input_update(double dt, void* user_data) {
     // Get key states
-    bool move_left = input_is_key_pressed(KEY_LEFT);
-    bool move_right = input_is_key_pressed(KEY_RIGHT);
+    bool left = input_is_key_pressed(KEY_LEFT);
+    bool right = input_is_key_pressed(KEY_RIGHT);
     bool jump = input_is_key_pressed(KEY_JUMP);
     
+    // Check for changes in key state
+    bool left_changed = (left != key_state.left_pressed);
+    bool right_changed = (right != key_state.right_pressed);
+    bool jump_changed = (jump != key_state.jump_pressed);
+    
+    // Update key state
+    key_state.left_pressed = left;
+    key_state.right_pressed = right;
+    key_state.jump_pressed = jump;
+    
     // Apply input to physics
-    physics_apply_input(move_left, move_right, jump);
+    physics_apply_input(left, right, jump);
     
-    // Debug output for input polling
-    static bool last_left = false;
-    static bool last_right = false;
-    static bool last_jump = false;
-    
-    if (move_left != last_left || move_right != last_right || jump != last_jump) {
-        printf("[Input] Polled: left=%d, right=%d, jump=%d\n", 
-               move_left, move_right, jump);
-        
-        last_left = move_left;
-        last_right = move_right;
-        last_jump = jump;
+    // Debug output for input polling (only when keys change)
+    if (left_changed || right_changed || jump_changed) {
+        LOG_DEBUG(LOG_CATEGORY_INPUT, "Polled: left=%d, right=%d, jump=%d", 
+               left, right, jump);
     }
 } 
