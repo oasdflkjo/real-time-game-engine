@@ -3,11 +3,12 @@
 #include "../include/logging.h"
 #include <stdio.h>
 #include <math.h>
+#include <string.h>
 
 // Physics constants in SI units
 #define GRAVITY 9.81f          // m/s²
 #define PLAYER_SPEED 20.0f      // m/s
-#define JUMP_VELOCITY 7.0f     // m/s
+#define JUMP_VELOCITY 10.0f     // m/s
 #define PLAYER_WIDTH 1.0f      // m
 #define PLAYER_HEIGHT 2.0f     // m
 #define GROUND_Y 0.0f          // m (ground is at y=0)
@@ -29,6 +30,19 @@ void physics_init(void) {
     input.move_left = false;
     input.move_right = false;
     input.jump = false;
+    
+    // Log the initial game state
+    const GameState* state = game_state_get_read();
+    LOG_INFO(LOG_CATEGORY_PHYSICS, "Initial player position: (%.2f, %.2f)", 
+           state->player.position_x, state->player.position_y);
+    
+    // Log ground positions
+    for (int i = 0; i < state->ground_count; i++) {
+        const GroundState* ground = &state->grounds[i];
+        float ground_top = ground->position_y - ground->height / 2.0f;
+        LOG_INFO(LOG_CATEGORY_PHYSICS, "Ground %d: pos=(%.2f, %.2f), top=%.2f", 
+               i, ground->position_x, ground->position_y, ground_top);
+    }
     
     LOG_INFO(LOG_CATEGORY_PHYSICS, "Initialized with SI units (gravity = %.2f m/s²)", GRAVITY);
 }
@@ -56,6 +70,14 @@ void physics_apply_input(bool move_left, bool move_right, bool jump) {
         LOG_DEBUG(LOG_CATEGORY_PHYSICS, "Input: left=%d, right=%d, jump=%d", 
                move_left, move_right, jump);
     }
+}
+
+// Check if a point is inside a rectangle
+static bool is_point_in_rect(float px, float py, float rx, float ry, float rw, float rh) {
+    float half_width = rw / 2.0f;
+    float half_height = rh / 2.0f;
+    return (px >= rx - half_width && px <= rx + half_width &&
+            py >= ry - half_height && py <= ry + half_height);
 }
 
 // Update physics (to be called by the scheduler at fixed intervals)
@@ -94,19 +116,67 @@ void physics_update(double dt, void* user_data) {
     state->player.velocity_y += GRAVITY * FIXED_TIME_STEP;
     
     // Update player position with fixed time step
-    state->player.position_x += state->player.velocity_x * FIXED_TIME_STEP;
-    state->player.position_y += state->player.velocity_y * FIXED_TIME_STEP;
+    float new_x = state->player.position_x + state->player.velocity_x * FIXED_TIME_STEP;
+    float new_y = state->player.position_y + state->player.velocity_y * FIXED_TIME_STEP;
     
-    // Check ground collision
-    // Player's feet are at position_y + PLAYER_HEIGHT/2
-    float feet_y = state->player.position_y + PLAYER_HEIGHT/2;
-    if (feet_y >= GROUND_Y) {
-        // Place the player so their feet are exactly on the ground
-        state->player.position_y = GROUND_Y - PLAYER_HEIGHT/2;
-        state->player.velocity_y = 0.0f;
-        state->player.is_grounded = true;
-        state->player.is_jumping = false;
+    // Reset grounded state
+    bool was_grounded = state->player.is_grounded;
+    state->player.is_grounded = false;
+    
+    // Check ground collision with all ground planes
+    float player_half_width = PLAYER_WIDTH / 2.0f;
+    float player_half_height = PLAYER_HEIGHT / 2.0f;
+    
+    // Calculate player's feet position (bottom of player)
+    float player_feet_y = new_y + player_half_height;
+    
+    // Log player position and velocity
+    LOG_INFO(LOG_CATEGORY_PHYSICS, "Player: pos=(%.2f, %.2f), vel=(%.2f, %.2f), feet_y=%.2f, grounded=%d", 
+           new_x, new_y, state->player.velocity_x, state->player.velocity_y, player_feet_y, was_grounded);
+    
+    // Check collision with each ground
+    for (int i = 0; i < state->ground_count; i++) {
+        GroundState* ground = &state->grounds[i];
+        
+        // Calculate ground boundaries
+        float ground_left = ground->position_x - ground->width / 2.0f;
+        float ground_right = ground->position_x + ground->width / 2.0f;
+        
+        // Calculate the top surface of the ground (important for collision)
+        float ground_top = ground->position_y - ground->height / 2.0f;
+        
+        // Log ground position
+        LOG_INFO(LOG_CATEGORY_PHYSICS, "Ground %d: pos=(%.2f, %.2f), bounds=[%.2f, %.2f], top=%.2f", 
+               i, ground->position_x, ground->position_y, ground_left, ground_right, ground_top);
+        
+        // Check if player is horizontally within the ground's bounds
+        if (new_x + player_half_width >= ground_left && 
+            new_x - player_half_width <= ground_right) {
+            
+            // Calculate player's feet position in previous frame
+            float prev_feet_y = prev_y + player_half_height;
+            
+            LOG_INFO(LOG_CATEGORY_PHYSICS, "Player over ground %d: feet_y=%.2f, prev_feet_y=%.2f, ground_top=%.2f", 
+                   i, player_feet_y, prev_feet_y, ground_top);
+            
+            // Check if player's feet are at or below the ground's top surface
+            // AND the player was above the ground in the previous frame
+            if (player_feet_y >= ground_top && prev_feet_y <= ground_top) {
+                // Place the player so their feet are exactly on the ground
+                new_y = ground_top - player_half_height;
+                state->player.velocity_y = 0.0f;
+                state->player.is_grounded = true;
+                state->player.is_jumping = false;
+                
+                LOG_INFO(LOG_CATEGORY_PHYSICS, "Player landed on ground %d at y=%.2f", i, new_y);
+                break;  // Only collide with one ground at a time
+            }
+        }
     }
+    
+    // Update player position
+    state->player.position_x = new_x;
+    state->player.position_y = new_y;
     
     // Check world boundaries
     float half_width = PLAYER_WIDTH / 2.0f;
@@ -118,27 +188,22 @@ void physics_update(double dt, void* user_data) {
         state->player.velocity_x = 0.0f;
     }
     
-    // Update camera position to match player position
-    state->camera_x = state->player.position_x;
-    state->camera_y = state->player.position_y;
-    
-    // Update game time with fixed time step
-    state->game_time += FIXED_TIME_STEP;
-    
     // Finish writing to the game state
     game_state_end_write();
     
     // Debug output for physics update (only when moving and less frequently)
     static double last_debug_time = 0.0;
+    static double accumulated_time = 0.0;
     float dx = state->player.position_x - prev_x;
     float dy = state->player.position_y - prev_y;
     
+    accumulated_time += dt;
     if ((fabs(dx) > 0.01f || fabs(dy) > 0.01f) && 
-        (state->game_time - last_debug_time > 0.5)) {
-        LOG_DEBUG(LOG_CATEGORY_PHYSICS, "Updated: pos=(%.2f, %.2f) m, vel=(%.2f, %.2f) m/s, moved=(%.2f, %.2f) m, fixed_dt=%.3fs",
+        (accumulated_time - last_debug_time > 0.5)) {
+        LOG_INFO(LOG_CATEGORY_PHYSICS, "Updated: pos=(%.2f, %.2f) m, vel=(%.2f, %.2f) m/s, grounded=%d",
                state->player.position_x, state->player.position_y,
                state->player.velocity_x, state->player.velocity_y,
-               dx, dy, FIXED_TIME_STEP);
-        last_debug_time = state->game_time;
+               state->player.is_grounded);
+        last_debug_time = accumulated_time;
     }
 } 

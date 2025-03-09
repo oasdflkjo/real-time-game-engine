@@ -21,12 +21,44 @@ void game_state_init(void) {
     
     // Set initial player position (in meters)
     for (int i = 0; i < 3; i++) {
-        state_buffers[i].player.position_x = 0.0f;  // Center of the world
-        state_buffers[i].player.position_y = -1.0f; // 1 meter above the ground (since player is 2m tall)
+        // Initialize player
+        state_buffers[i].player.position_x = -15.0f;  // Start on the left platform
+        state_buffers[i].player.position_y = -1.0f;   // 1 meter above the ground (since player is 2m tall)
         state_buffers[i].player.is_grounded = true;
+        
+        // Initialize ground planes
+        state_buffers[i].ground_count = 3;
+        
+        // Left platform - Note: For a 1m tall ground, the top surface is at y=-0.5
+        state_buffers[i].grounds[0].position_x = -20.0f;  // Center at x=-20
+        state_buffers[i].grounds[0].position_y = 0.5f;    // Center at y=0.5 (ground level)
+        state_buffers[i].grounds[0].width = 20.0f;        // 20 meters wide
+        state_buffers[i].grounds[0].height = 1.0f;        // 1 meter tall
+        
+        // Gap (no ground here)
+        
+        // Right platform
+        state_buffers[i].grounds[1].position_x = 20.0f;   // Center at x=20
+        state_buffers[i].grounds[1].position_y = 0.5f;    // Center at y=0.5 (ground level)
+        state_buffers[i].grounds[1].width = 20.0f;        // 20 meters wide
+        state_buffers[i].grounds[1].height = 1.0f;        // 1 meter tall
+        
+        // Far platform (higher)
+        state_buffers[i].grounds[2].position_x = 50.0f;   // Center at x=50
+        state_buffers[i].grounds[2].position_y = -2.0f;   // Center at y=-2 (higher platform)
+        state_buffers[i].grounds[2].width = 20.0f;        // 20 meters wide
+        state_buffers[i].grounds[2].height = 1.0f;        // 1 meter tall
     }
     
     LOG_INFO(LOG_CATEGORY_GAME_STATE, "Initialized with SI units (meters)");
+    
+    // Log ground plane positions for debugging
+    for (int i = 0; i < state_buffers[0].ground_count; i++) {
+        GroundState* ground = &state_buffers[0].grounds[i];
+        float ground_top = ground->position_y - ground->height / 2.0f;
+        LOG_INFO(LOG_CATEGORY_GAME_STATE, "Ground %d: pos=(%.2f, %.2f), size=(%.2f, %.2f), top=%.2f",
+               i, ground->position_x, ground->position_y, ground->width, ground->height, ground_top);
+    }
 }
 
 // Shutdown the game state system
@@ -72,27 +104,4 @@ void game_state_end_write(void) {
     
     LOG_DEBUG(LOG_CATEGORY_GAME_STATE, "End writing, current=%d, previous=%d, write=%d", 
              current_buffer, previous_buffer, write_buffer);
-}
-
-// Interpolate between physics states for smooth rendering
-// NOTE: This function is kept for compatibility but no longer performs interpolation
-// with the fixed time step architecture
-void game_state_interpolate(float alpha, GameState* result) {
-    if (!result) {
-        LOG_ERROR(LOG_CATEGORY_GAME_STATE, "Null result pointer passed to game_state_interpolate");
-        return;
-    }
-    
-    EnterCriticalSection(&state_lock);
-    const GameState* current = &state_buffers[current_buffer];
-    LeaveCriticalSection(&state_lock);
-    
-    // With fixed time steps, we just use the current state directly
-    *result = *current;
-    
-    // Ensure camera position matches player position
-    result->camera_x = result->player.position_x;
-    result->camera_y = result->player.position_y;
-    
-    LOG_DEBUG(LOG_CATEGORY_GAME_STATE, "Using current state directly (fixed time step)");
 } 

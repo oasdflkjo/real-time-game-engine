@@ -3,6 +3,9 @@
 
 #include <stdbool.h>
 
+// Maximum number of ground planes
+#define MAX_GROUND_PLANES 10
+
 // Player state
 typedef struct {
     float position_x;
@@ -13,12 +16,20 @@ typedef struct {
     bool is_grounded;
 } PlayerState;
 
-// Game world state
+// Ground state
+typedef struct {
+    float position_x;  // Center position X
+    float position_y;  // Center position Y
+    float width;       // Width in meters
+    float height;      // Height in meters
+} GroundState;
+
+// Game world state - pure game logic, no rendering concepts
 typedef struct {
     PlayerState player;
-    float camera_x;
-    float camera_y;
-    double game_time;
+    GroundState grounds[MAX_GROUND_PLANES];
+    int ground_count;
+    // Add other game entities here as needed
 } GameState;
 
 // Initialize the game state system
@@ -35,8 +46,5 @@ GameState* game_state_begin_write(void);
 
 // Finish writing to the game state (swaps the buffers)
 void game_state_end_write(void);
-
-// Interpolate between physics states for smooth rendering
-void game_state_interpolate(float alpha, GameState* result);
 
 #endif // GAME_STATE_H 

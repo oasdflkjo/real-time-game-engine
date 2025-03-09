@@ -1,6 +1,8 @@
 #include "../include/renderer.h"
 #include "../include/camera.h"
 #include "../include/logging.h"
+#include "../include/animation.h"
+#include "../include/scheduler.h"
 #include <GLFW/glfw3.h>
 #include <cglm/cglm.h>
 #include <stdio.h>
@@ -163,7 +165,7 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 
 // Initialize the renderer
 bool renderer_init(int width, int height) {
-    // Set window dimensions (these will be overridden in fullscreen mode)
+    // Set window dimensions
     window_width = width;
     window_height = height;
     
@@ -176,112 +178,58 @@ bool renderer_init(int width, int height) {
         return false;
     }
     
-    // Get the primary monitor for fullscreen
-    GLFWmonitor* monitor = NULL;
-    int monitor_x = 0, monitor_y = 0;
-    
+    // Create a windowed mode window and its OpenGL context
     if (is_fullscreen) {
-        monitor = glfwGetPrimaryMonitor();
+        // Get the primary monitor
+        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
         const GLFWvidmode* mode = glfwGetVideoMode(monitor);
         
-        // Use the monitor's native resolution in fullscreen mode
+        // Create fullscreen window
+        window = glfwCreateWindow(mode->width, mode->height, "Real-Time Game Engine", monitor, NULL);
+        
+        // Update window dimensions
         window_width = mode->width;
         window_height = mode->height;
         
-        LOG_INFO(LOG_CATEGORY_RENDERER, "Using fullscreen mode: %dx%d @ %dHz", 
-               mode->width, mode->height, mode->refreshRate);
+        LOG_INFO(LOG_CATEGORY_RENDERER, "Created fullscreen window (%dx%d)", window_width, window_height);
     } else {
-        // For windowed mode, center the window on the monitor
-        GLFWmonitor* primary = glfwGetPrimaryMonitor();
-        const GLFWvidmode* mode = glfwGetVideoMode(primary);
-        
-        // Center the window
-        monitor_x = (mode->width - window_width) / 2;
-        monitor_y = (mode->height - window_height) / 2;
-        
-        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // Hide window until positioned
+        // Create windowed mode window
+        window = glfwCreateWindow(window_width, window_height, "Real-Time Game Engine", NULL, NULL);
+        LOG_INFO(LOG_CATEGORY_RENDERER, "Created window (%dx%d)", window_width, window_height);
     }
     
-    // Create window with anti-aliasing
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-    glfwWindowHint(GLFW_SAMPLES, 4); // Enable 4x MSAA
-    
-    window = glfwCreateWindow(window_width, window_height, "Real-Time Game Engine", monitor, NULL);
     if (!window) {
-        LOG_ERROR(LOG_CATEGORY_RENDERER, "Failed to create GLFW window");
+        LOG_ERROR(LOG_CATEGORY_RENDERER, "Failed to create window");
         glfwTerminate();
         return false;
     }
     
-    // Position windowed mode window
-    if (!is_fullscreen) {
-        glfwSetWindowPos(window, monitor_x, monitor_y);
-        glfwShowWindow(window);
-    }
-    
-    // Set callbacks
-    glfwSetKeyCallback(window, key_callback);
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-    
-    // Make OpenGL context current
+    // Make the window's context current
     glfwMakeContextCurrent(window);
     
-    // Set VSync mode (adaptive for FreeSync/G-Sync)
+    // Set VSync mode
     glfwSwapInterval(vsync_mode);
     
-    const char* vsync_str;
-    switch (vsync_mode) {
-        case VSYNC_OFF: vsync_str = "OFF"; break;
-        case VSYNC_ON: vsync_str = "ON"; break;
-        case VSYNC_ADAPTIVE: vsync_str = "ADAPTIVE (FreeSync/G-Sync)"; break;
-        default: vsync_str = "UNKNOWN";
-    }
+    // Set key callback
+    glfwSetKeyCallback(window, key_callback);
     
-    // Enable anti-aliasing if supported
-    // Note: GL_MULTISAMPLE is automatically enabled by GLFW when using GLFW_SAMPLES
+    // Set framebuffer size callback
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     
-    // Set viewport
-    glViewport(0, 0, window_width, window_height);
-    
-    // Set clear color (black)
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    
-    // Enable blending for transparency
+    // Initialize OpenGL
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     
     // Generate grid texture
-    grid_texture_size = 512;  // Size of the grid texture (power of 2)
-    grid_texture_scale = 1.0f;  // Scale of the grid in the texture (larger value = smaller grid cells)
-    
-    // Create the grid texture with gray lines
-    // Parameters: size, grid spacing (cells per texture), line width (% of texture), r, g, b, alpha
-    grid_texture = generate_grid_texture(grid_texture_size, 32.0f, 0.5f, 0.3f, 0.3f, 0.3f, 0.5f);
-    
-    // Check if texture was created successfully
-    if (grid_texture == 0) {
-        LOG_ERROR(LOG_CATEGORY_RENDERER, "Failed to create grid texture");
-        return false;
-    }
-    
-    LOG_INFO(LOG_CATEGORY_RENDERER, "Initialized with %s mode, size %dx%d (%.2f pixels per meter, VSync: %s, MSAA: 4x)", 
-           is_fullscreen ? "fullscreen" : "windowed", window_width, window_height, PIXELS_PER_METER, vsync_str);
+    grid_texture = generate_grid_texture(grid_texture_size, 0.1f, 0.01f, 0.2f, 0.2f, 0.2f, 1.0f);
     
     // Generate ground texture
-    ground_texture = generate_ground_texture(512);
-    if (ground_texture == 0) {
-        LOG_ERROR(LOG_CATEGORY_RENDERER, "Failed to create ground texture");
-        return false;
-    }
+    ground_texture = generate_ground_texture(256);
     
     // Generate player texture
-    player_texture = generate_player_texture(512);
-    if (player_texture == 0) {
-        LOG_ERROR(LOG_CATEGORY_RENDERER, "Failed to create player texture");
-        return false;
-    }
+    player_texture = generate_player_texture(128);
     
+    LOG_INFO(LOG_CATEGORY_RENDERER, "Initialized with OpenGL %s", glGetString(GL_VERSION));
     return true;
 }
 
@@ -717,113 +665,6 @@ static void draw_textured_world_rectangle(const Camera* camera, float x, float y
     }
 }
 
-// Render the game state
-void renderer_draw_game(const GameState* state) {
-    if (!state) {
-        return;
-    }
-    
-    // Get the current camera
-    const Camera* camera = camera_get_current();
-    
-    // Clear the screen with black
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    
-    // Set up orthographic projection
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(0.0, window_width, 0.0, window_height, -1.0, 1.0);  // Note: Y-axis flipped to have origin at bottom-left
-    
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    
-    // Draw solid black background
-    glDisable(GL_TEXTURE_2D);
-    glDisable(GL_BLEND);
-    glColor3f(0.0f, 0.0f, 0.0f);
-    
-    glBegin(GL_QUADS);
-    glVertex2f(0, 0);
-    glVertex2f(window_width, 0);
-    glVertex2f(window_width, window_height);
-    glVertex2f(0, window_height);
-    glEnd();
-    
-    // Draw world grid using texture (eliminates jitter)
-    draw_grid_texture(camera);
-    
-    // Draw ground with texture (100 meters wide, 1 meter tall)
-    float ground_width = 100.0f;
-    float ground_height = 1.0f;
-    
-    // Calculate texture coordinates for ground (repeat texture)
-    float ground_tex_repeat = ground_width / 10.0f;  // Repeat every 10 meters
-    draw_textured_world_rectangle(camera, 0.0f, 0.5f, ground_width, ground_height, 
-                                 ground_texture, 0.0f, 0.0f, ground_tex_repeat, 1.0f);
-    
-    // Draw player with texture (1x2 meter rectangle)
-    draw_textured_world_rectangle(camera, state->player.position_x, state->player.position_y, 
-                                 1.0f, 2.0f, player_texture, 0.0f, 0.0f, 1.0f, 1.0f);
-    
-    // Draw HUD (screen coordinates)
-    char position_text[64];
-    sprintf(position_text, "Player: (%.2f, %.2f) m", state->player.position_x, state->player.position_y);
-    
-    // Draw FPS counter in the top-right corner
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(0.0, window_width, 0.0, window_height, -1.0, 1.0);
-    
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    
-    // Draw FPS text (simple colored rectangle for now)
-    glColor3f(0.0f, 1.0f, 0.0f);
-    glRasterPos2f(window_width - 100, window_height - 20);
-    
-    // Print player position to console for debugging (less frequently)
-    static double last_print_time = 0.0;
-    if (state->game_time - last_print_time > 1.0) {
-        LOG_INFO(LOG_CATEGORY_RENDERER, "Player: (%.2f, %.2f) m, Camera: (%.2f, %.2f) m", 
-               state->player.position_x, state->player.position_y,
-               camera->position_x, camera->position_y);
-        last_print_time = state->game_time;
-    }
-}
-
-// Check if the window should close
-bool renderer_should_close(void) {
-    return glfwWindowShouldClose(window);
-}
-
-// Get window dimensions
-void renderer_get_window_size(int* width, int* height) {
-    if (!window) {
-        // If window isn't created yet, return the cached values
-        if (width) *width = window_width;
-        if (height) *height = window_height;
-        return;
-    }
-    
-    // Get the actual window size from GLFW
-    int w, h;
-    glfwGetFramebufferSize(window, &w, &h);
-    
-    // Update cached values
-    window_width = w;
-    window_height = h;
-    
-    // Return the values
-    if (width) *width = w;
-    if (height) *height = h;
-}
-
-// Process input events
-void renderer_process_input(void) {
-    glfwPollEvents();
-}
-
 // Generate a ground texture with grass pattern
 static GLuint generate_ground_texture(int size) {
     // Create texture data (RGBA format)
@@ -976,4 +817,141 @@ static GLuint generate_player_texture(int size) {
     
     LOG_INFO(LOG_CATEGORY_RENDERER, "Created player texture with ID %u, size %dx%d", texture_id, size, size);
     return texture_id;
+}
+
+// Update the renderer_draw_game function to draw all ground planes
+void renderer_draw_game(const GameState* state) {
+    if (!state) {
+        return;
+    }
+    
+    // Get the current camera
+    const Camera* camera = camera_get_current();
+    
+    // Get the current animation state
+    const AnimationState* anim_state = animation_get_state();
+    
+    // Clear the screen with black
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    
+    // Set up orthographic projection
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0.0, window_width, 0.0, window_height, -1.0, 1.0);  // Note: Y-axis flipped to have origin at bottom-left
+    
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    
+    // Draw solid black background
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_BLEND);
+    glColor3f(0.0f, 0.0f, 0.0f);
+    
+    glBegin(GL_QUADS);
+    glVertex2f(0, 0);
+    glVertex2f(window_width, 0);
+    glVertex2f(window_width, window_height);
+    glVertex2f(0, window_height);
+    glEnd();
+    
+    // Draw world grid using texture (eliminates jitter)
+    draw_grid_texture(camera);
+    
+    // Draw all ground planes
+    for (int i = 0; i < state->ground_count; i++) {
+        const GroundState* ground = &state->grounds[i];
+        float ground_tex_repeat = ground->width / 10.0f;  // Repeat every 10 meters
+        draw_textured_world_rectangle(camera, 
+                                     ground->position_x, 
+                                     ground->position_y, 
+                                     ground->width, 
+                                     ground->height, 
+                                     ground_texture, 0.0f, 0.0f, ground_tex_repeat, 1.0f);
+    }
+    
+    // Draw player with texture (1x2 meter rectangle)
+    // Use animation state to determine which frame to show
+    float s1 = 0.0f;
+    float t1 = 0.0f;
+    float s2 = 1.0f;
+    float t2 = 1.0f;
+    
+    // In a real sprite sheet, we would calculate texture coordinates based on the current frame
+    // For now, we'll just use the entire texture
+    // Example calculation for a 4x1 sprite sheet (4 frames in a row):
+    // float frame_width = 0.25f; // 1/4 of the texture width
+    // s1 = anim_state->player.current_frame * frame_width;
+    // s2 = s1 + frame_width;
+    
+    // Draw player with animation frame
+    draw_textured_world_rectangle(camera, state->player.position_x, state->player.position_y, 
+                                 1.0f, 2.0f, player_texture, s1, t1, s2, t2);
+    
+    // Draw HUD (screen coordinates)
+    char position_text[64];
+    sprintf(position_text, "Player: (%.2f, %.2f) m", state->player.position_x, state->player.position_y);
+    
+    // Draw animation state info
+    char animation_text[64];
+    sprintf(animation_text, "Animation: %s (Frame %d/%d)", 
+           anim_state->player.animation_name,
+           anim_state->player.current_frame + 1,
+           anim_state->player.frame_count);
+    
+    // Draw FPS counter in the top-right corner
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0.0, window_width, 0.0, window_height, -1.0, 1.0);
+    
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    
+    // Draw FPS text (simple colored rectangle for now)
+    glColor3f(0.0f, 1.0f, 0.0f);
+    glRasterPos2f(window_width - 100, window_height - 20);
+    
+    // Print player position to console for debugging (less frequently)
+    static double last_print_time = 0.0;
+    double current_time = scheduler_get_time_ms() / 1000.0;
+    if (current_time - last_print_time > 1.0) {
+        LOG_INFO(LOG_CATEGORY_RENDERER, "Player: (%.2f, %.2f) m, Animation: %s (Frame %d/%d)", 
+               state->player.position_x, state->player.position_y,
+               anim_state->player.animation_name,
+               anim_state->player.current_frame + 1,
+               anim_state->player.frame_count);
+        last_print_time = current_time;
+    }
+}
+
+// Check if the window should close
+bool renderer_should_close(void) {
+    return glfwWindowShouldClose(window);
+}
+
+// Get window dimensions
+void renderer_get_window_size(int* width, int* height) {
+    if (!window) {
+        // If window isn't created yet, return the cached values
+        if (width) *width = window_width;
+        if (height) *height = window_height;
+        return;
+    }
+    
+    // Get the actual window size from GLFW
+    int w, h;
+    glfwGetFramebufferSize(window, &w, &h);
+    
+    // Update cached values
+    window_width = w;
+    window_height = h;
+    
+    // Return the values
+    if (width) *width = w;
+    if (height) *height = h;
+}
+
+// Process input events
+void renderer_process_input(void) {
+    glfwPollEvents();
 } 

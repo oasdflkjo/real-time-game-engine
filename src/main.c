@@ -1,5 +1,4 @@
 #include "../include/scheduler.h"
-#include "../include/memory_pool.h"
 #include "../include/game_state.h"
 #include "../include/renderer.h"
 #include "../include/physics.h"
@@ -54,12 +53,11 @@ void render_task(double dt, void* user_data) {
     // Begin frame
     renderer_begin_frame();
     
-    // Get interpolated game state for rendering
-    GameState render_state;
-    animation_get_render_state(&render_state);
+    // Get the current game state for rendering
+    const GameState* game_state = game_state_get_read();
     
     // Draw the game
-    renderer_draw_game(&render_state);
+    renderer_draw_game(game_state);
     
     // End frame
     renderer_end_frame();

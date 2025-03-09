@@ -15,4 +15,7 @@ void input_update(double dt, void* user_data);
 // Get input state
 bool input_is_key_pressed(int key);
 
+// Check controller state
+void input_check_controller(bool* left, bool* right, bool* jump);
+
 #endif // INPUT_H 

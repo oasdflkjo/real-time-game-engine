@@ -3,16 +3,35 @@
 
 #include "game_state.h"
 
+// Animation state for a player
+typedef struct {
+    int current_frame;         // Current animation frame
+    int frame_count;           // Total frames in current animation
+    float frame_time;          // Time per frame
+    float time_accumulator;    // Time accumulated for current animation
+    const char* animation_name; // Name of current animation (e.g., "idle", "run", "jump")
+} PlayerAnimation;
+
+// Animation state for the entire game
+typedef struct {
+    PlayerAnimation player;
+    // Add other entity animations here as needed
+    double last_update_time;   // Time of last animation update
+} AnimationState;
+
 // Initialize the animation system
 void animation_init(void);
 
 // Shutdown the animation system
 void animation_shutdown(void);
 
-// Update animations (to be called by the scheduler)
+// Update animations based on game state (to be called by the scheduler)
 void animation_update(double dt, void* user_data);
 
-// Get the interpolated game state for rendering
-void animation_get_render_state(GameState* result);
+// Get the current animation state for rendering
+const AnimationState* animation_get_state(void);
+
+// Determine which animation to play based on player state
+void animation_set_player_animation(const PlayerState* player_state);
 
 #endif // ANIMATION_H 
