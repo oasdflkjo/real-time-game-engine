@@ -1,18 +1,17 @@
 #include "../include/physics.h"
 #include "../include/renderer.h"
 #include "../include/logging.h"
+#include "../include/entity.h"
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
 
 // Physics constants in SI units
 #define GRAVITY 9.81f          // m/s²
-#define PLAYER_SPEED 20.0f      // m/s
-#define JUMP_VELOCITY 10.0f     // m/s
-#define PLAYER_WIDTH 1.0f      // m
-#define PLAYER_HEIGHT 2.0f     // m
-#define GROUND_Y 0.0f          // m (ground is at y=0)
 #define WORLD_WIDTH 100.0f     // m
+#define TERMINAL_VELOCITY 20.0f // m/s (maximum falling speed)
+#define ENEMY_PATROL_SPEED 2.0f // m/s (enemy patrol speed)
+#define ENEMY_LOOK_AHEAD 1.0f   // m (enemy look-ahead distance)
 
 // Fixed physics time step (in seconds)
 #define FIXED_TIME_STEP 0.016f  // ~60Hz
@@ -33,8 +32,11 @@ void physics_init(void) {
     
     // Log the initial game state
     const GameState* state = game_state_get_read();
-    LOG_INFO(LOG_CATEGORY_PHYSICS, "Initial player position: (%.2f, %.2f)", 
-           state->player.position_x, state->player.position_y);
+    
+    if (state->player) {
+        LOG_INFO(LOG_CATEGORY_PHYSICS, "Initial player position: (%.2f, %.2f)", 
+               state->player->position_x, state->player->position_y);
+    }
     
     // Log ground positions
     for (int i = 0; i < state->ground_count; i++) {
@@ -43,6 +45,9 @@ void physics_init(void) {
         LOG_INFO(LOG_CATEGORY_PHYSICS, "Ground %d: pos=(%.2f, %.2f), top=%.2f", 
                i, ground->position_x, ground->position_y, ground_top);
     }
+    
+    // Log entity information
+    LOG_INFO(LOG_CATEGORY_PHYSICS, "Entity count: %d", state->entity_count);
     
     LOG_INFO(LOG_CATEGORY_PHYSICS, "Initialized with SI units (gravity = %.2f m/s²)", GRAVITY);
 }
@@ -80,59 +85,175 @@ static bool is_point_in_rect(float px, float py, float rx, float ry, float rw, f
             py >= ry - half_height && py <= ry + half_height);
 }
 
-// Update physics (to be called by the scheduler at fixed intervals)
-void physics_update(double dt, void* user_data) {
-    // Begin writing to the game state
-    GameState* state = game_state_begin_write();
+// Check if there's ground beneath a position
+static bool is_ground_beneath(const GameState* state, float x, float y, float height) {
+    // In our coordinate system, positive y is down
+    // The entity position is at the center of the entity
+    // So the feet position is at y + height/2
+    float feet_y = y + height/2;
     
-    // Store previous position for logging
-    float prev_x = state->player.position_x;
-    float prev_y = state->player.position_y;
+    // Check a point slightly below the entity's feet
+    float check_y = feet_y + 0.2f; // 0.2 meters below the feet
     
-    // Update player horizontal movement with fixed time step
-    if (input.move_left) {
-        state->player.velocity_x = -PLAYER_SPEED;
-    } else if (input.move_right) {
-        state->player.velocity_x = PLAYER_SPEED;
-    } else {
-        // Apply friction to slow down when no input
-        state->player.velocity_x *= 0.9f;
+    LOG_DEBUG(LOG_CATEGORY_PHYSICS, "Checking for ground beneath (%.2f, %.2f), feet_y=%.2f, check_y=%.2f",
+             x, y, feet_y, check_y);
+    
+    // Check for each ground
+    for (int i = 0; i < state->ground_count; i++) {
+        const GroundState* ground = &state->grounds[i];
         
-        // Stop completely if very slow
-        if (fabs(state->player.velocity_x) < 0.1f) {
-            state->player.velocity_x = 0.0f;
+        // Calculate ground boundaries
+        float ground_left = ground->position_x - ground->width / 2.0f;
+        float ground_right = ground->position_x + ground->width / 2.0f;
+        float ground_top = ground->position_y - ground->height / 2.0f;
+        
+        LOG_DEBUG(LOG_CATEGORY_PHYSICS, "Ground %d: bounds=[%.2f, %.2f], top=%.2f",
+                i, ground_left, ground_right, ground_top);
+        
+        // Check if the point is above this ground
+        if (x >= ground_left && x <= ground_right && 
+            check_y >= ground_top && check_y <= ground_top + 0.3f) {
+            LOG_DEBUG(LOG_CATEGORY_PHYSICS, "Found ground beneath (%.2f, %.2f)", x, y);
+            return true;
         }
     }
     
-    // Apply jump if grounded
-    if (input.jump && state->player.is_grounded) {
-        state->player.velocity_y = -JUMP_VELOCITY;
-        state->player.is_grounded = false;
-        state->player.is_jumping = true;
-        LOG_INFO(LOG_CATEGORY_PHYSICS, "Player jumped with velocity %.2f m/s", JUMP_VELOCITY);
+    LOG_DEBUG(LOG_CATEGORY_PHYSICS, "No ground found beneath (%.2f, %.2f)", x, y);
+    return false;
+}
+
+// Debug function to visualize the ground check
+static void debug_visualize_ground_check(const GameState* state, float x, float y, float height, bool has_ground) {
+    // This function would ideally draw debug visuals, but for now we'll just log
+    LOG_INFO(LOG_CATEGORY_PHYSICS, "Ground check at (%.2f, %.2f): %s", 
+           x, y, has_ground ? "GROUND FOUND" : "NO GROUND");
+}
+
+// Update enemy patrol behavior
+static void update_enemy_patrol(Entity* entity, const GameState* state) {
+    if (!entity || entity->type != ENTITY_TYPE_ENEMY) {
+        return;
     }
     
-    // Apply gravity with fixed time step
-    state->player.velocity_y += GRAVITY * FIXED_TIME_STEP;
+    // Check if we need to change direction due to patrol boundaries
+    if (entity->position_x <= entity->enemy.patrol_start_x && entity->velocity_x < 0) {
+        // We've reached the left boundary while moving left, so change direction
+        entity->velocity_x = ENEMY_PATROL_SPEED;
+        LOG_INFO(LOG_CATEGORY_PHYSICS, "Enemy at (%.2f, %.2f) reached left patrol boundary, moving right",
+                entity->position_x, entity->position_y);
+    } 
+    else if (entity->position_x >= entity->enemy.patrol_end_x && entity->velocity_x > 0) {
+        // We've reached the right boundary while moving right, so change direction
+        entity->velocity_x = -ENEMY_PATROL_SPEED;
+        LOG_INFO(LOG_CATEGORY_PHYSICS, "Enemy at (%.2f, %.2f) reached right patrol boundary, moving left",
+                entity->position_x, entity->position_y);
+    }
+    else if (entity->velocity_x == 0) {
+        // If the enemy is not moving, start moving right
+        entity->velocity_x = ENEMY_PATROL_SPEED;
+        LOG_INFO(LOG_CATEGORY_PHYSICS, "Enemy at (%.2f, %.2f) was stationary, now moving right",
+                entity->position_x, entity->position_y);
+    }
     
-    // Update player position with fixed time step
-    float new_x = state->player.position_x + state->player.velocity_x * FIXED_TIME_STEP;
-    float new_y = state->player.position_y + state->player.velocity_y * FIXED_TIME_STEP;
+    // Check for platform edges
+    float look_ahead = ENEMY_LOOK_AHEAD; // Look ahead distance
+    float check_x;
+    
+    if (entity->velocity_x > 0) {
+        // Moving right, check ahead to the right
+        check_x = entity->position_x + entity->width/2 + look_ahead;
+    } else {
+        // Moving left, check ahead to the left
+        check_x = entity->position_x - entity->width/2 - look_ahead;
+    }
+    
+    // If there's no ground ahead, turn around
+    bool has_ground = is_ground_beneath(state, check_x, entity->position_y, entity->height);
+    
+    // Visualize the ground check
+    debug_visualize_ground_check(state, check_x, entity->position_y, entity->height, has_ground);
+    
+    if (!has_ground) {
+        entity->velocity_x = -entity->velocity_x; // Reverse direction
+        LOG_INFO(LOG_CATEGORY_PHYSICS, "Enemy at (%.2f, %.2f) reached platform edge, turning around",
+                entity->position_x, entity->position_y);
+    }
+}
+
+// Update a single entity's physics
+static void update_entity_physics(Entity* entity, GameState* state, float dt) {
+    if (!entity || !entity->is_active) {
+        return;
+    }
+    
+    // Store previous position for collision detection
+    float prev_x = entity->position_x;
+    float prev_y = entity->position_y;
+    
+    // Apply entity-specific logic
+    switch (entity->type) {
+        case ENTITY_TYPE_PLAYER:
+            // Update player horizontal movement
+            if (input.move_left) {
+                entity->velocity_x = -entity->player.move_speed;
+                entity->player.is_moving_left = true;
+                entity->player.is_moving_right = false;
+            } else if (input.move_right) {
+                entity->velocity_x = entity->player.move_speed;
+                entity->player.is_moving_left = false;
+                entity->player.is_moving_right = true;
+            } else {
+                // Apply friction to slow down when no input
+                entity->velocity_x *= 0.9f;
+                entity->player.is_moving_left = false;
+                entity->player.is_moving_right = false;
+                
+                // Stop completely if very slow
+                if (fabs(entity->velocity_x) < 0.1f) {
+                    entity->velocity_x = 0.0f;
+                }
+            }
+            
+            // Apply jump if grounded
+            if (input.jump && entity->is_grounded) {
+                entity->velocity_y = -entity->player.jump_force;
+                entity->is_grounded = false;
+                entity->is_jumping = true;
+                LOG_INFO(LOG_CATEGORY_PHYSICS, "Player jumped with velocity %.2f m/s", entity->player.jump_force);
+            }
+            break;
+            
+        case ENTITY_TYPE_ENEMY:
+            break;
+            
+        default:
+            break;
+    }
+    
+    // Apply gravity to non-static entities
+    if (!entity->is_static) {
+        entity->velocity_y += GRAVITY * dt;
+        
+        // Apply terminal velocity limit
+        if (entity->velocity_y > TERMINAL_VELOCITY) {
+            entity->velocity_y = TERMINAL_VELOCITY;
+        }
+    }
+    
+    // Update position
+    float new_x = entity->position_x + entity->velocity_x * dt;
+    float new_y = entity->position_y + entity->velocity_y * dt;
     
     // Reset grounded state
-    bool was_grounded = state->player.is_grounded;
-    state->player.is_grounded = false;
+    bool was_grounded = entity->is_grounded;
+    entity->is_grounded = false;
     
     // Check ground collision with all ground planes
-    float player_half_width = PLAYER_WIDTH / 2.0f;
-    float player_half_height = PLAYER_HEIGHT / 2.0f;
+    float entity_half_width = entity->width / 2.0f;
+    float entity_half_height = entity->height / 2.0f;
     
-    // Calculate player's feet position (bottom of player)
-    float player_feet_y = new_y + player_half_height;
-    
-    // Log player position and velocity
-    LOG_INFO(LOG_CATEGORY_PHYSICS, "Player: pos=(%.2f, %.2f), vel=(%.2f, %.2f), feet_y=%.2f, grounded=%d", 
-           new_x, new_y, state->player.velocity_x, state->player.velocity_y, player_feet_y, was_grounded);
+    // Calculate entity's feet position (bottom of entity)
+    float entity_feet_y = new_y + entity_half_height;
     
     // Check collision with each ground
     for (int i = 0; i < state->ground_count; i++) {
@@ -145,65 +266,73 @@ void physics_update(double dt, void* user_data) {
         // Calculate the top surface of the ground (important for collision)
         float ground_top = ground->position_y - ground->height / 2.0f;
         
-        // Log ground position
-        LOG_INFO(LOG_CATEGORY_PHYSICS, "Ground %d: pos=(%.2f, %.2f), bounds=[%.2f, %.2f], top=%.2f", 
-               i, ground->position_x, ground->position_y, ground_left, ground_right, ground_top);
-        
-        // Check if player is horizontally within the ground's bounds
-        if (new_x + player_half_width >= ground_left && 
-            new_x - player_half_width <= ground_right) {
+        // Check if entity is horizontally within the ground's bounds
+        if (new_x + entity_half_width >= ground_left && 
+            new_x - entity_half_width <= ground_right) {
             
-            // Calculate player's feet position in previous frame
-            float prev_feet_y = prev_y + player_half_height;
+            // Calculate entity's feet position in previous frame
+            float prev_feet_y = prev_y + entity_half_height;
             
-            LOG_INFO(LOG_CATEGORY_PHYSICS, "Player over ground %d: feet_y=%.2f, prev_feet_y=%.2f, ground_top=%.2f", 
-                   i, player_feet_y, prev_feet_y, ground_top);
-            
-            // Check if player's feet are at or below the ground's top surface
-            // AND the player was above the ground in the previous frame
-            if (player_feet_y >= ground_top && prev_feet_y <= ground_top) {
-                // Place the player so their feet are exactly on the ground
-                new_y = ground_top - player_half_height;
-                state->player.velocity_y = 0.0f;
-                state->player.is_grounded = true;
-                state->player.is_jumping = false;
+            // Check if entity's feet are at or below the ground's top surface
+            // AND the entity was above the ground in the previous frame
+            if (entity_feet_y >= ground_top && prev_feet_y <= ground_top) {
+                // Place the entity so their feet are exactly on the ground
+                new_y = ground_top - entity_half_height;
+                entity->velocity_y = 0.0f;
+                entity->is_grounded = true;
+                entity->is_jumping = false;
                 
-                LOG_INFO(LOG_CATEGORY_PHYSICS, "Player landed on ground %d at y=%.2f", i, new_y);
+                if (entity->type == ENTITY_TYPE_PLAYER) {
+                    LOG_INFO(LOG_CATEGORY_PHYSICS, "Player landed on ground %d at y=%.2f", i, new_y);
+                }
                 break;  // Only collide with one ground at a time
             }
         }
     }
     
-    // Update player position
-    state->player.position_x = new_x;
-    state->player.position_y = new_y;
+    // Update entity position
+    entity->position_x = new_x;
+    entity->position_y = new_y;
     
     // Check world boundaries
-    float half_width = PLAYER_WIDTH / 2.0f;
-    if (state->player.position_x < -WORLD_WIDTH/2 + half_width) {
-        state->player.position_x = -WORLD_WIDTH/2 + half_width;
-        state->player.velocity_x = 0.0f;
-    } else if (state->player.position_x > WORLD_WIDTH/2 - half_width) {
-        state->player.position_x = WORLD_WIDTH/2 - half_width;
-        state->player.velocity_x = 0.0f;
+    if (entity->position_x < -WORLD_WIDTH/2 + entity_half_width) {
+        entity->position_x = -WORLD_WIDTH/2 + entity_half_width;
+        entity->velocity_x = 0.0f;
+    } else if (entity->position_x > WORLD_WIDTH/2 - entity_half_width) {
+        entity->position_x = WORLD_WIDTH/2 - entity_half_width;
+        entity->velocity_x = 0.0f;
+    }
+}
+
+// Update physics (to be called by the scheduler at fixed intervals)
+void physics_update(double dt, void* user_data) {
+    // Begin writing to the game state
+    GameState* state = game_state_begin_write();
+    
+    // Update all entities
+    for (int i = 0; i < state->entity_count; i++) {
+        Entity* entity = state->entities[i];
+        if (entity && entity->is_active) {
+            update_enemy_patrol(entity, state);
+            update_entity_physics(entity, state, FIXED_TIME_STEP);
+        }
     }
     
     // Finish writing to the game state
     game_state_end_write();
     
-    // Debug output for physics update (only when moving and less frequently)
+    // Debug output for physics update (less frequently)
     static double last_debug_time = 0.0;
     static double accumulated_time = 0.0;
-    float dx = state->player.position_x - prev_x;
-    float dy = state->player.position_y - prev_y;
     
     accumulated_time += dt;
-    if ((fabs(dx) > 0.01f || fabs(dy) > 0.01f) && 
-        (accumulated_time - last_debug_time > 0.5)) {
-        LOG_INFO(LOG_CATEGORY_PHYSICS, "Updated: pos=(%.2f, %.2f) m, vel=(%.2f, %.2f) m/s, grounded=%d",
-               state->player.position_x, state->player.position_y,
-               state->player.velocity_x, state->player.velocity_y,
-               state->player.is_grounded);
+    if (accumulated_time - last_debug_time > 1.0) {
+        if (state->player) {
+            LOG_INFO(LOG_CATEGORY_PHYSICS, "Player: pos=(%.2f, %.2f) m, vel=(%.2f, %.2f) m/s, grounded=%d",
+                   state->player->position_x, state->player->position_y,
+                   state->player->velocity_x, state->player->velocity_y,
+                   state->player->is_grounded);
+        }
         last_debug_time = accumulated_time;
     }
 } 

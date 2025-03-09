@@ -873,19 +873,54 @@ void renderer_draw_game(const GameState* state) {
                                      ground_texture, 0.0f, 0.0f, ground_tex_repeat, 1.0f);
     }
     
-    // Draw player with texture (1x2 meter rectangle)
-    float s1 = 0.0f;
-    float t1 = 0.0f;
-    float s2 = 1.0f;
-    float t2 = 1.0f;
-    
-    // Draw player with animation frame
-    draw_textured_world_rectangle(camera, state->player.position_x, state->player.position_y, 
-                                 1.0f, 2.0f, player_texture, s1, t1, s2, t2);
+    // Draw all entities
+    for (int i = 0; i < state->entity_count; i++) {
+        const Entity* entity = state->entities[i];
+        
+        if (!entity || !entity->is_visible) {
+            continue;
+        }
+        
+        // Default texture coordinates
+        float s1 = 0.0f;
+        float t1 = 0.0f;
+        float s2 = 1.0f;
+        float t2 = 1.0f;
+        
+        // Choose texture based on entity type
+        GLuint texture = 0;
+        
+        switch (entity->type) {
+            case ENTITY_TYPE_PLAYER:
+                texture = player_texture;
+                break;
+                
+            case ENTITY_TYPE_ENEMY:
+                // Use player texture for enemies too for now
+                texture = player_texture;
+                break;
+                
+            default:
+                // Default to player texture
+                texture = player_texture;
+                break;
+        }
+        
+        // Draw the entity
+        draw_textured_world_rectangle(camera, 
+                                     entity->position_x, 
+                                     entity->position_y, 
+                                     entity->width, 
+                                     entity->height, 
+                                     texture, s1, t1, s2, t2);
+    }
     
     // Draw HUD (screen coordinates)
     char position_text[64];
-    sprintf(position_text, "Player: (%.2f, %.2f) m", state->player.position_x, state->player.position_y);
+    if (state->player) {
+        sprintf(position_text, "Player: (%.2f, %.2f) m", 
+               state->player->position_x, state->player->position_y);
+    }
     
     // Draw FPS counter in the top-right corner
     glMatrixMode(GL_PROJECTION);
@@ -902,9 +937,9 @@ void renderer_draw_game(const GameState* state) {
     // Print player position to console for debugging (less frequently)
     static double last_print_time = 0.0;
     double current_time = scheduler_get_time_ms() / 1000.0;
-    if (current_time - last_print_time > 1.0) {
-        LOG_INFO(LOG_CATEGORY_RENDERER, "Player: (%.2f, %.2f) m", 
-               state->player.position_x, state->player.position_y);
+    if (current_time - last_print_time > 1.0 && state->player) {
+        LOG_INFO(LOG_CATEGORY_RENDERER, "Player: (%.2f, %.2f) m, Entities: %d", 
+               state->player->position_x, state->player->position_y, state->entity_count);
         last_print_time = current_time;
     }
     

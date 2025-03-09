@@ -2,9 +2,13 @@
 #define GAME_STATE_H
 
 #include <stdbool.h>
+#include "entity.h"
 
 // Maximum number of ground planes
 #define MAX_GROUND_PLANES 10
+
+// Maximum number of entities
+#define MAX_ENTITIES 100
 
 // Player state
 typedef struct {
@@ -26,10 +30,14 @@ typedef struct {
 
 // Game world state - pure game logic, no rendering concepts
 typedef struct {
-    PlayerState player;
+    Entity* entities[MAX_ENTITIES];
+    int entity_count;
+    
+    // Reference to the player entity (for quick access)
+    Entity* player;
+    
     GroundState grounds[MAX_GROUND_PLANES];
     int ground_count;
-    // Add other game entities here as needed
 } GameState;
 
 // Initialize the game state system
@@ -46,5 +54,10 @@ GameState* game_state_begin_write(void);
 
 // Finish writing to the game state (swaps the buffers)
 void game_state_end_write(void);
+
+// Entity management functions
+Entity* game_state_add_entity(Entity* entity);
+void game_state_remove_entity(Entity* entity);
+void game_state_clear_entities(void);
 
 #endif // GAME_STATE_H 

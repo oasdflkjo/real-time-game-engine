@@ -68,10 +68,10 @@ static void render_physics_window(const GameState* state) {
     }
     
     // Player position and velocity
-    ImGui::Text("Player Position: (%.2f, %.2f)", state->player.position_x, state->player.position_y);
-    ImGui::Text("Player Velocity: (%.2f, %.2f)", state->player.velocity_x, state->player.velocity_y);
-    ImGui::Text("Player Grounded: %s", state->player.is_grounded ? "Yes" : "No");
-    ImGui::Text("Player Jumping: %s", state->player.is_jumping ? "Yes" : "No");
+    ImGui::Text("Player Position: (%.2f, %.2f)", state->player->position_x, state->player->position_y);
+    ImGui::Text("Player Velocity: (%.2f, %.2f)", state->player->velocity_x, state->player->velocity_y);
+    ImGui::Text("Player Grounded: %s", state->player->is_grounded ? "Yes" : "No");
+    ImGui::Text("Player Jumping: %s", state->player->is_jumping ? "Yes" : "No");
     
     // Ground planes
     if (ImGui::CollapsingHeader("Ground Planes")) {

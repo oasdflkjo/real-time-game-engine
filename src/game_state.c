@@ -1,5 +1,6 @@
 #include "../include/game_state.h"
 #include "../include/logging.h"
+#include "../include/entity.h"
 #include <stdio.h>
 #include <string.h>
 #include <windows.h>
@@ -19,12 +20,24 @@ void game_state_init(void) {
     // Clear all state buffers
     memset(state_buffers, 0, sizeof(state_buffers));
     
-    // Set initial player position (in meters)
     for (int i = 0; i < 3; i++) {
-        // Initialize player
-        state_buffers[i].player.position_x = -15.0f;  // Start on the left platform
-        state_buffers[i].player.position_y = -1.0f;   // 1 meter above the ground (since player is 2m tall)
-        state_buffers[i].player.is_grounded = true;
+        // Initialize entity array
+        state_buffers[i].entity_count = 0;
+        for (int j = 0; j < MAX_ENTITIES; j++) {
+            state_buffers[i].entities[j] = NULL;
+        }
+        
+        // Create player entity
+        Entity* player = entity_create_player(-15.0f, -1.0f);
+        game_state_add_entity(player);
+        state_buffers[i].player = player;
+        
+        // Create some enemy entities
+        Entity* enemy1 = entity_create_enemy(10.0f, -1.0f, 5.0f, 15.0f);
+        game_state_add_entity(enemy1);
+        
+        Entity* enemy2 = entity_create_enemy(30.0f, -1.0f, 25.0f, 35.0f);
+        game_state_add_entity(enemy2);
         
         // Initialize ground planes
         state_buffers[i].ground_count = 3;
@@ -59,10 +72,16 @@ void game_state_init(void) {
         LOG_INFO(LOG_CATEGORY_GAME_STATE, "Ground %d: pos=(%.2f, %.2f), size=(%.2f, %.2f), top=%.2f",
                i, ground->position_x, ground->position_y, ground->width, ground->height, ground_top);
     }
+    
+    // Log entity information
+    LOG_INFO(LOG_CATEGORY_GAME_STATE, "Created %d entities", state_buffers[0].entity_count);
 }
 
 // Shutdown the game state system
 void game_state_shutdown(void) {
+    // Free all entities
+    game_state_clear_entities();
+    
     DeleteCriticalSection(&state_lock);
     LOG_INFO(LOG_CATEGORY_GAME_STATE, "Shutdown");
 }
@@ -104,4 +123,89 @@ void game_state_end_write(void) {
     
     LOG_DEBUG(LOG_CATEGORY_GAME_STATE, "End writing, current=%d, previous=%d, write=%d", 
              current_buffer, previous_buffer, write_buffer);
+}
+
+// Add an entity to the game state
+Entity* game_state_add_entity(Entity* entity) {
+    if (!entity) {
+        LOG_ERROR(LOG_CATEGORY_GAME_STATE, "Cannot add NULL entity");
+        return NULL;
+    }
+    
+    GameState* state = &state_buffers[current_buffer];
+    
+    // Check if we have room for more entities
+    if (state->entity_count >= MAX_ENTITIES) {
+        LOG_ERROR(LOG_CATEGORY_GAME_STATE, "Cannot add entity: maximum entity count reached");
+        entity_destroy(entity);
+        return NULL;
+    }
+    
+    // Add the entity to the array
+    state->entities[state->entity_count] = entity;
+    state->entity_count++;
+    
+    LOG_INFO(LOG_CATEGORY_GAME_STATE, "Added entity of type %d at index %d", 
+           entity->type, state->entity_count - 1);
+    
+    return entity;
+}
+
+// Remove an entity from the game state
+void game_state_remove_entity(Entity* entity) {
+    if (!entity) {
+        return;
+    }
+    
+    GameState* state = &state_buffers[current_buffer];
+    
+    // Find the entity in the array
+    int index = -1;
+    for (int i = 0; i < state->entity_count; i++) {
+        if (state->entities[i] == entity) {
+            index = i;
+            break;
+        }
+    }
+    
+    // If the entity was found, remove it
+    if (index >= 0) {
+        // If this is the player entity, clear the player reference
+        if (entity == state->player) {
+            state->player = NULL;
+        }
+        
+        // Destroy the entity
+        entity_destroy(entity);
+        
+        // Shift all entities after this one down by one
+        for (int i = index; i < state->entity_count - 1; i++) {
+            state->entities[i] = state->entities[i + 1];
+        }
+        
+        // Clear the last entity slot
+        state->entities[state->entity_count - 1] = NULL;
+        state->entity_count--;
+        
+        LOG_INFO(LOG_CATEGORY_GAME_STATE, "Removed entity at index %d", index);
+    }
+}
+
+// Clear all entities from the game state
+void game_state_clear_entities(void) {
+    GameState* state = &state_buffers[current_buffer];
+    
+    // Destroy all entities
+    for (int i = 0; i < state->entity_count; i++) {
+        if (state->entities[i]) {
+            entity_destroy(state->entities[i]);
+            state->entities[i] = NULL;
+        }
+    }
+    
+    // Reset entity count and player reference
+    state->entity_count = 0;
+    state->player = NULL;
+    
+    LOG_INFO(LOG_CATEGORY_GAME_STATE, "Cleared all entities");
 } 

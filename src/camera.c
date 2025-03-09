@@ -32,7 +32,7 @@ void camera_update(double dt, void* user_data) {
     const GameState* state = game_state_get_read();
     
     // Calculate the target position (player position)
-    float target_x = state->player.position_x;
+    float target_x = state->player->position_x;
     
     // For Y position, we'll use a fixed value to keep the ground level stable
     // This prevents the camera from following the player during jumps
