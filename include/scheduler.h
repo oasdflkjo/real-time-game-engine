@@ -28,7 +28,7 @@ static const double TASK_BUDGET_MS[TASK_PRIORITY_COUNT] = {
 
 // Task frequencies in milliseconds
 static const double TASK_INTERVAL_MS[TASK_PRIORITY_COUNT] = {
-    7.8125,  // Physics & AI: 128Hz (7.8125ms) - Fixed time step
+    3.90625,  // Physics & AI: 256Hz (3.90625ms) - Fixed time step
     6.06,    // Animation: 165Hz (6.06ms)
     6.06,    // Render & Audio: 165Hz (6.06ms)
     100.0    // Background: 10Hz (100ms)

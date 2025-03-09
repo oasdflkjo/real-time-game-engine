@@ -14,7 +14,7 @@
 #define ENEMY_LOOK_AHEAD 1.0f   // m (enemy look-ahead distance)
 
 // Fixed physics time step (in seconds)
-#define FIXED_TIME_STEP 0.0078125f  // 128Hz
+#define FIXED_TIME_STEP 0.00390625f  // 256Hz
 
 // Input state
 static struct {
