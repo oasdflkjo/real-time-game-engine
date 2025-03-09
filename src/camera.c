@@ -86,6 +86,11 @@ void camera_world_to_screen(const Camera* camera, float world_x, float world_y, 
     // Flip the y-axis so that positive y in world space goes up on screen
     *screen_x = (offset_x * camera->zoom) + (camera->width / 2.0f);
     *screen_y = (camera->height / 2.0f) - (offset_y * camera->zoom);  // Flipped y-axis
+    
+    // Align to integer pixel coordinates for pixel-perfect rendering
+    // This prevents sub-pixel rendering which can cause ghosting
+    *screen_x = floorf(*screen_x + 0.5f);  // Round to nearest integer
+    *screen_y = floorf(*screen_y + 0.5f);  // Round to nearest integer
 }
 
 // Convert screen coordinates to world coordinates

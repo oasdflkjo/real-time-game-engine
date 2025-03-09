@@ -17,6 +17,7 @@ static struct {
     bool show_demo_window;
     bool show_physics_window;
     bool show_performance_window;
+    float enemy_speed;  // Added enemy speed variable
 } debug_hud_state;
 
 // Initialize the debug HUD
@@ -26,6 +27,7 @@ extern "C" void debug_hud_init(void) {
     debug_hud_state.show_demo_window = false;
     debug_hud_state.show_physics_window = true;
     debug_hud_state.show_performance_window = true;
+    debug_hud_state.enemy_speed = 20.0f;  // Default enemy speed
     
     // Get the GLFW window from the current context
     GLFWwindow* window = glfwGetCurrentContext();
@@ -72,6 +74,28 @@ static void render_physics_window(const GameState* state) {
     ImGui::Text("Player Velocity: (%.2f, %.2f)", state->player->velocity_x, state->player->velocity_y);
     ImGui::Text("Player Grounded: %s", state->player->is_grounded ? "Yes" : "No");
     ImGui::Text("Player Jumping: %s", state->player->is_jumping ? "Yes" : "No");
+    
+    // Enemy speed slider
+    ImGui::Separator();
+    ImGui::Text("Enemy Settings");
+    float old_speed = debug_hud_state.enemy_speed;
+    if (ImGui::SliderFloat("Enemy Speed", &debug_hud_state.enemy_speed, 1.0f, 50.0f, "%.1f m/s")) {
+        LOG_INFO(LOG_CATEGORY_PHYSICS, "Enemy speed changed from %.1f to %.1f m/s", 
+                old_speed, debug_hud_state.enemy_speed);
+    }
+    
+    // Display enemy information if available
+    for (int i = 0; i < state->entity_count; i++) {
+        const Entity* entity = state->entities[i];
+        if (entity && entity->type == ENTITY_TYPE_ENEMY) {
+            ImGui::Text("Enemy Position: (%.2f, %.2f)", entity->position_x, entity->position_y);
+            ImGui::Text("Enemy Velocity: (%.2f, %.2f)", entity->velocity_x, entity->velocity_y);
+            ImGui::Text("Enemy Patrol Speed: %.2f", entity->enemy.patrol_speed);
+            ImGui::Text("Enemy Patrol Range: %.2f to %.2f", 
+                       entity->enemy.patrol_start_x, entity->enemy.patrol_end_x);
+            break;  // Just show the first enemy
+        }
+    }
     
     // Ground planes
     if (ImGui::CollapsingHeader("Ground Planes")) {
@@ -154,4 +178,15 @@ extern "C" void debug_hud_toggle(void) {
 // Check if the debug HUD is visible
 extern "C" bool debug_hud_is_visible(void) {
     return debug_hud_state.visible;
+}
+
+// Get the enemy speed from the debug HUD
+extern "C" float debug_hud_get_enemy_speed(void) {
+    return debug_hud_state.enemy_speed;
+}
+
+// Set the initial enemy speed in the debug HUD
+extern "C" void debug_hud_set_enemy_speed(float speed) {
+    debug_hud_state.enemy_speed = speed;
+    LOG_INFO(LOG_CATEGORY_PHYSICS, "Enemy speed initialized to %.1f m/s", speed);
 } 

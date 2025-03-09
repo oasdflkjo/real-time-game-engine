@@ -32,12 +32,9 @@ void game_state_init(void) {
         game_state_add_entity(player);
         state_buffers[i].player = player;
         
-        // Create some enemy entities
-        Entity* enemy1 = entity_create_enemy(10.0f, -1.0f, 5.0f, 15.0f);
-        game_state_add_entity(enemy1);
-        
-        Entity* enemy2 = entity_create_enemy(30.0f, -1.0f, 25.0f, 35.0f);
-        game_state_add_entity(enemy2);
+        // Create one enemy entity with a long patrol distance
+        Entity* enemy = entity_create_enemy(10.0f, -1.0f, -10.0f, 30.0f);
+        game_state_add_entity(enemy);
         
         // Initialize ground planes
         state_buffers[i].ground_count = 3;

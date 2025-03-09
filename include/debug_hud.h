@@ -22,6 +22,12 @@ void debug_hud_toggle(void);
 // Check if the debug HUD is visible
 bool debug_hud_is_visible(void);
 
+// Get the enemy speed from the debug HUD
+float debug_hud_get_enemy_speed(void);
+
+// Set the initial enemy speed in the debug HUD
+void debug_hud_set_enemy_speed(float speed);
+
 #ifdef __cplusplus
 }
 #endif

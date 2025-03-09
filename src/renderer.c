@@ -48,6 +48,9 @@ static struct {
     char fps_text[32];
 } frame_counter = {0};
 
+// Add a debug flag for motion blur
+static bool enable_motion_blur = false;
+
 // Function declarations
 static GLuint generate_grid_texture(int size, float grid_spacing, float line_width, float r, float g, float b, float a);
 static void draw_textured_quad(float x, float y, float width, float height, float s1, float t1, float s2, float t2);
@@ -90,6 +93,30 @@ static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
+    }
+    
+    // Toggle motion blur with B key
+    if (key == GLFW_KEY_B && action == GLFW_PRESS) {
+        enable_motion_blur = !enable_motion_blur;
+        LOG_INFO(LOG_CATEGORY_RENDERER, "Motion blur: %s", enable_motion_blur ? "ON" : "OFF");
+    }
+    
+    // Toggle VSync with V key
+    if (key == GLFW_KEY_V && action == GLFW_PRESS) {
+        // Cycle through VSync modes: OFF -> ON -> ADAPTIVE -> OFF
+        if (vsync_mode == VSYNC_OFF) {
+            vsync_mode = VSYNC_ON;
+            LOG_INFO(LOG_CATEGORY_RENDERER, "VSync mode: ON");
+        } else if (vsync_mode == VSYNC_ON) {
+            vsync_mode = VSYNC_ADAPTIVE;
+            LOG_INFO(LOG_CATEGORY_RENDERER, "VSync mode: ADAPTIVE");
+        } else {
+            vsync_mode = VSYNC_OFF;
+            LOG_INFO(LOG_CATEGORY_RENDERER, "VSync mode: OFF");
+        }
+        
+        // Apply the new VSync setting
+        glfwSwapInterval(vsync_mode);
     }
     
     // Toggle fullscreen with F11
@@ -137,28 +164,6 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
         glViewport(0, 0, window_width, window_height);
         
         // Re-apply VSync setting after changing display mode
-        glfwSwapInterval(vsync_mode);
-    }
-    
-    // Toggle VSync modes with F10
-    if (key == GLFW_KEY_F10 && action == GLFW_PRESS) {
-        // Cycle through VSync modes
-        switch (vsync_mode) {
-            case VSYNC_OFF:
-                vsync_mode = VSYNC_ON;
-                LOG_INFO(LOG_CATEGORY_RENDERER, "VSync: ON (Standard)");
-                break;
-            case VSYNC_ON:
-                vsync_mode = VSYNC_ADAPTIVE;
-                LOG_INFO(LOG_CATEGORY_RENDERER, "VSync: ADAPTIVE (FreeSync/G-Sync)");
-                break;
-            case VSYNC_ADAPTIVE:
-                vsync_mode = VSYNC_OFF;
-                LOG_INFO(LOG_CATEGORY_RENDERER, "VSync: OFF");
-                break;
-        }
-        
-        // Apply the new VSync setting
         glfwSwapInterval(vsync_mode);
     }
 }
@@ -285,10 +290,16 @@ void renderer_begin_frame(void) {
         // Log FPS
         LOG_INFO(LOG_CATEGORY_RENDERER, "Current frame rate: %.1f FPS", frame_counter.fps);
     }
+    
+    // Poll for events at the beginning of the frame
+    glfwPollEvents();
 }
 
 // End the current frame and swap buffers
 void renderer_end_frame(void) {
+    // Ensure all rendering commands are submitted
+    glFlush();
+    
     // Swap buffers
     glfwSwapBuffers(window);
 }
@@ -451,8 +462,8 @@ static GLuint generate_grid_texture(int size, float grid_spacing, float line_wid
     // Set texture parameters
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     
     // Create texture data with all pixels initially transparent
     unsigned char* data = (unsigned char*)calloc(size * size * 4, sizeof(unsigned char));
@@ -715,8 +726,8 @@ static GLuint generate_ground_texture(int size) {
     glBindTexture(GL_TEXTURE_2D, texture_id);
     
     // Set texture parameters
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     
@@ -802,8 +813,8 @@ static GLuint generate_player_texture(int size) {
     glBindTexture(GL_TEXTURE_2D, texture_id);
     
     // Set texture parameters
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
     
@@ -834,9 +845,24 @@ void renderer_draw_game(const GameState* state) {
     // Get the current camera
     const Camera* camera = camera_get_current();
     
-    // Clear the screen with black
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    // Clear the screen with black (unless motion blur is enabled)
+    if (!enable_motion_blur) {
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    } else {
+        // For motion blur, draw a semi-transparent black quad over the previous frame
+        glDisable(GL_TEXTURE_2D);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glColor4f(0.0f, 0.0f, 0.0f, 0.5f);  // Semi-transparent black
+        
+        glBegin(GL_QUADS);
+        glVertex2f(0, 0);
+        glVertex2f(window_width, 0);
+        glVertex2f(window_width, window_height);
+        glVertex2f(0, window_height);
+        glEnd();
+    }
     
     // Set up orthographic projection
     glMatrixMode(GL_PROJECTION);
@@ -846,17 +872,10 @@ void renderer_draw_game(const GameState* state) {
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
     
-    // Draw solid black background
-    glDisable(GL_TEXTURE_2D);
-    glDisable(GL_BLEND);
-    glColor3f(0.0f, 0.0f, 0.0f);
-    
-    glBegin(GL_QUADS);
-    glVertex2f(0, 0);
-    glVertex2f(window_width, 0);
-    glVertex2f(window_width, window_height);
-    glVertex2f(0, window_height);
-    glEnd();
+    // Enable texture and blend modes for consistent rendering
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     
     // Draw world grid using texture (eliminates jitter)
     draw_grid_texture(camera);

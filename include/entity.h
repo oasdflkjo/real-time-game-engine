@@ -48,6 +48,7 @@ typedef struct {
         struct {
             float patrol_start_x;
             float patrol_end_x;
+            float patrol_speed;
             float aggro_range;
             float attack_range;
             bool is_aggressive;

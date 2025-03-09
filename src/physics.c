@@ -2,6 +2,7 @@
 #include "../include/renderer.h"
 #include "../include/logging.h"
 #include "../include/entity.h"
+#include "../include/debug_hud.h"
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
@@ -10,7 +11,6 @@
 #define GRAVITY 9.81f          // m/s²
 #define WORLD_WIDTH 100.0f     // m
 #define TERMINAL_VELOCITY 20.0f // m/s (maximum falling speed)
-#define ENEMY_PATROL_SPEED 2.0f // m/s (enemy patrol speed)
 #define ENEMY_LOOK_AHEAD 1.0f   // m (enemy look-ahead distance)
 
 // Fixed physics time step (in seconds)
@@ -29,6 +29,9 @@ void physics_init(void) {
     input.move_left = false;
     input.move_right = false;
     input.jump = false;
+    
+    // Initialize the enemy speed in the debug HUD
+    debug_hud_set_enemy_speed(20.0f);  // Default enemy speed
     
     // Log the initial game state
     const GameState* state = game_state_get_read();
@@ -135,22 +138,52 @@ static void update_enemy_patrol(Entity* entity, const GameState* state) {
         return;
     }
     
+    // Get the current enemy speed from the debug HUD
+    float patrol_speed = debug_hud_get_enemy_speed();
+    
+    // Log the current speed values
+    static float last_logged_speed = 0.0f;
+    if (fabs(patrol_speed - last_logged_speed) > 0.1f) {
+        LOG_INFO(LOG_CATEGORY_PHYSICS, "Enemy patrol speed updated: %.1f m/s (old velocity: %.1f m/s)", 
+                patrol_speed, entity->velocity_x);
+        last_logged_speed = patrol_speed;
+    }
+    
+    // Update the enemy's patrol speed
+    entity->enemy.patrol_speed = patrol_speed;
+    
+    // Preserve the direction but update the speed
+    float old_velocity = entity->velocity_x;
+    if (entity->velocity_x > 0) {
+        // Moving right, update speed
+        entity->velocity_x = patrol_speed;
+    } else if (entity->velocity_x < 0) {
+        // Moving left, update speed
+        entity->velocity_x = -patrol_speed;
+    }
+    
+    // Log significant velocity changes
+    if (fabs(entity->velocity_x - old_velocity) > 0.1f) {
+        LOG_INFO(LOG_CATEGORY_PHYSICS, "Enemy velocity changed from %.1f to %.1f m/s", 
+                old_velocity, entity->velocity_x);
+    }
+    
     // Check if we need to change direction due to patrol boundaries
     if (entity->position_x <= entity->enemy.patrol_start_x && entity->velocity_x < 0) {
         // We've reached the left boundary while moving left, so change direction
-        entity->velocity_x = ENEMY_PATROL_SPEED;
+        entity->velocity_x = patrol_speed;
         LOG_INFO(LOG_CATEGORY_PHYSICS, "Enemy at (%.2f, %.2f) reached left patrol boundary, moving right",
                 entity->position_x, entity->position_y);
     } 
     else if (entity->position_x >= entity->enemy.patrol_end_x && entity->velocity_x > 0) {
         // We've reached the right boundary while moving right, so change direction
-        entity->velocity_x = -ENEMY_PATROL_SPEED;
+        entity->velocity_x = -patrol_speed;
         LOG_INFO(LOG_CATEGORY_PHYSICS, "Enemy at (%.2f, %.2f) reached right patrol boundary, moving left",
                 entity->position_x, entity->position_y);
     }
     else if (entity->velocity_x == 0) {
         // If the enemy is not moving, start moving right
-        entity->velocity_x = ENEMY_PATROL_SPEED;
+        entity->velocity_x = patrol_speed;
         LOG_INFO(LOG_CATEGORY_PHYSICS, "Enemy at (%.2f, %.2f) was stationary, now moving right",
                 entity->position_x, entity->position_y);
     }

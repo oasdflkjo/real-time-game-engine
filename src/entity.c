@@ -1,5 +1,6 @@
 #include "../include/entity.h"
 #include "../include/logging.h"
+#include "../include/debug_hud.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -61,10 +62,16 @@ Entity* entity_create_enemy(float x, float y, float patrol_start, float patrol_e
     // Set entity type
     enemy->type = ENTITY_TYPE_ENEMY;
     
+    // Get initial enemy speed from debug HUD
+    float patrol_speed = debug_hud_get_enemy_speed();
+    
+    // Log the initial speed
+    LOG_INFO(LOG_CATEGORY_GAME, "Creating enemy with patrol speed: %.1f m/s", patrol_speed);
+    
     // Set common properties
     enemy->position_x = x;
     enemy->position_y = y;
-    enemy->velocity_x = 2.0f;
+    enemy->velocity_x = patrol_speed;  // Use the patrol speed from debug HUD
     enemy->velocity_y = 0.0f;
     enemy->width = 1.0f;  // 1 meter wide
     enemy->height = 2.0f; // 2 meters tall
@@ -78,8 +85,9 @@ Entity* entity_create_enemy(float x, float y, float patrol_start, float patrol_e
     // Set enemy-specific properties
     enemy->enemy.patrol_start_x = patrol_start;
     enemy->enemy.patrol_end_x = patrol_end;
-    enemy->enemy.aggro_range = 5.0f;  // 5 meters
-    enemy->enemy.attack_range = 1.5f; // 1.5 meters
+    enemy->enemy.patrol_speed = patrol_speed;  // Initialize patrol speed
+    enemy->enemy.aggro_range = 5.0f;
+    enemy->enemy.attack_range = 1.5f;
     enemy->enemy.is_aggressive = true;
     enemy->enemy.health = 100;
     
