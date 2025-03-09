@@ -60,4 +60,13 @@ Entity* game_state_add_entity(Entity* entity);
 void game_state_remove_entity(Entity* entity);
 void game_state_clear_entities(void);
 
+// Reset the game state to the initial state
+void game_state_reset(void);
+
+// Check if player has reached the last platform
+bool game_state_check_win_condition(void);
+
+// Update the game state (handles delayed reset)
+void game_state_update(double dt);
+
 #endif // GAME_STATE_H 

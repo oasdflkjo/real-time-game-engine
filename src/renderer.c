@@ -860,12 +860,35 @@ void renderer_draw_game(const GameState* state) {
     for (int i = 0; i < state->ground_count; i++) {
         const GroundState* ground = &state->grounds[i];
         float ground_tex_repeat = ground->width / 10.0f;  // Repeat every 10 meters
-        draw_textured_world_rectangle(camera, 
-                                     ground->position_x, 
-                                     ground->position_y, 
-                                     ground->width, 
-                                     ground->height, 
-                                     ground_texture, 0.0f, 0.0f, ground_tex_repeat, 1.0f);
+        
+        // Check if this is the goal platform (last platform)
+        if (i == state->ground_count - 1) {
+            // Draw the goal platform with a special texture or color
+            // For now, we'll use a different texture coordinate to make it look different
+            draw_textured_world_rectangle(camera, 
+                                         ground->position_x, 
+                                         ground->position_y, 
+                                         ground->width, 
+                                         ground->height, 
+                                         ground_texture, 0.5f, 0.5f, 1.5f, 1.5f);
+            
+            // Draw a goal indicator above the platform
+            float indicator_y = ground->position_y - ground->height / 2.0f - 2.0f;
+            draw_world_rectangle(camera,
+                               ground->position_x,
+                               indicator_y,
+                               2.0f,  // 2 meters wide
+                               0.5f,  // 0.5 meters tall
+                               0.0f, 1.0f, 0.0f);  // Green color
+        } else {
+            // Draw regular platforms
+            draw_textured_world_rectangle(camera, 
+                                         ground->position_x, 
+                                         ground->position_y, 
+                                         ground->width, 
+                                         ground->height, 
+                                         ground_texture, 0.0f, 0.0f, ground_tex_repeat, 1.0f);
+        }
     }
     
     // Draw all entities
@@ -972,4 +995,9 @@ void renderer_get_window_size(int* width, int* height) {
 // Process input events
 void renderer_process_input(void) {
     glfwPollEvents();
+}
+
+// Get the GLFW window handle
+GLFWwindow* renderer_get_window(void) {
+    return window;
 } 

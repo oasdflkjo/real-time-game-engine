@@ -37,6 +37,13 @@ static struct {
     const char* name;
 } controller_state;
 
+// Current input state
+static InputState current_input_state = {
+    .jump = false,
+    .move_x = 0.0f,
+    .move_y = 0.0f
+};
+
 // Initialize the input system
 void input_init(void) {
     // Reset key state
@@ -50,6 +57,11 @@ void input_init(void) {
     controller_state.controller_id = -1;
     controller_state.name = NULL;
     
+    // Reset input state
+    current_input_state.jump = false;
+    current_input_state.move_x = 0.0f;
+    current_input_state.move_y = 0.0f;
+    
     // Check for connected controllers
     for (int i = GLFW_JOYSTICK_1; i <= GLFW_JOYSTICK_LAST; i++) {
         if (glfwJoystickPresent(i)) {
@@ -59,8 +71,6 @@ void input_init(void) {
             
             LOG_INFO(LOG_CATEGORY_INPUT, "Controller connected: %s (ID: %d)", 
                    controller_state.name, controller_state.controller_id);
-            
-            // Only use the first controller found
             break;
         }
     }
@@ -78,20 +88,23 @@ void input_shutdown(void) {
     LOG_INFO(LOG_CATEGORY_INPUT, "Shutdown");
 }
 
-// Check if a key is pressed
+// Get input state
 bool input_is_key_pressed(int key) {
-    // Get the GLFW window from the renderer
-    GLFWwindow* window = glfwGetCurrentContext();
+    GLFWwindow* window = renderer_get_window();
     if (!window) {
-        LOG_ERROR(LOG_CATEGORY_INPUT, "No GLFW window context available");
         return false;
     }
     
     return glfwGetKey(window, key) == GLFW_PRESS;
 }
 
-// Check controller state
-void input_check_controller(bool* left, bool* right, bool* jump) {
+// Get the current input state
+InputState input_get_state(void) {
+    return current_input_state;
+}
+
+// Check controller input and update the input state
+static void update_controller_input(void) {
     if (!controller_state.connected || controller_state.controller_id < 0) {
         return;  // No controller connected
     }
@@ -120,37 +133,61 @@ void input_check_controller(bool* left, bool* right, bool* jump) {
     }
     
     // Check X button for jump
-    if (buttons[PS_BUTTON_X] == GLFW_PRESS) {
-        *jump = true;
-    }
+    current_input_state.jump = (buttons[PS_BUTTON_X] == GLFW_PRESS);
     
-    // Check left analog stick for movement
+    // Get left analog stick values
     float left_x = axes[PS_AXIS_LEFT_X];
+    float left_y = axes[PS_AXIS_LEFT_Y];
     
     // Apply deadzone
     if (fabsf(left_x) < ANALOG_DEADZONE) {
         left_x = 0.0f;
+    } else {
+        // Normalize the value after deadzone
+        float sign = (left_x > 0.0f) ? 1.0f : -1.0f;
+        left_x = sign * (fabsf(left_x) - ANALOG_DEADZONE) / (1.0f - ANALOG_DEADZONE);
     }
     
-    // Set movement based on analog stick
-    if (left_x < -ANALOG_DEADZONE) {
+    if (fabsf(left_y) < ANALOG_DEADZONE) {
+        left_y = 0.0f;
+    } else {
+        // Normalize the value after deadzone
+        float sign = (left_y > 0.0f) ? 1.0f : -1.0f;
+        left_y = sign * (fabsf(left_y) - ANALOG_DEADZONE) / (1.0f - ANALOG_DEADZONE);
+    }
+    
+    // Update input state with analog values
+    current_input_state.move_x = left_x;
+    current_input_state.move_y = left_y;
+    
+    // Debug output for controller
+    static float last_left_x = 0.0f;
+    static float last_left_y = 0.0f;
+    static bool last_jump = false;
+    
+    if (fabsf(left_x - last_left_x) > 0.1f || 
+        fabsf(left_y - last_left_y) > 0.1f || 
+        last_jump != current_input_state.jump) {
+        LOG_DEBUG(LOG_CATEGORY_INPUT, "Controller: left_x=%.2f, left_y=%.2f, jump=%d", 
+               left_x, left_y, current_input_state.jump);
+        last_left_x = left_x;
+        last_left_y = left_y;
+        last_jump = current_input_state.jump;
+    }
+}
+
+// Legacy function for backward compatibility
+void input_check_controller(bool* left, bool* right, bool* jump) {
+    // Use the current input state
+    if (current_input_state.move_x < -ANALOG_DEADZONE) {
         *left = true;
         *right = false;
-    } else if (left_x > ANALOG_DEADZONE) {
+    } else if (current_input_state.move_x > ANALOG_DEADZONE) {
         *left = false;
         *right = true;
     }
     
-    // Debug output for controller
-    static float last_left_x = 0.0f;
-    static bool last_jump = false;
-    
-    if (fabsf(left_x - last_left_x) > 0.1f || last_jump != *jump) {
-        LOG_DEBUG(LOG_CATEGORY_INPUT, "Controller: left_x=%.2f, jump=%d", 
-               left_x, *jump);
-        last_left_x = left_x;
-        last_jump = *jump;
-    }
+    *jump = current_input_state.jump;
 }
 
 // Update input state (to be called by the scheduler)
@@ -161,15 +198,22 @@ void input_update(double dt, void* user_data) {
     bool jump = input_is_key_pressed(KEY_JUMP);
     bool debug_hud = input_is_key_pressed(KEY_DEBUG_HUD);
     
-    // Check controller input (will override keyboard if active)
-    if (controller_state.connected) {
-        input_check_controller(&left, &right, &jump);
+    // Set default input state from keyboard
+    current_input_state.jump = jump;
+    current_input_state.move_x = 0.0f;
+    
+    if (left && !right) {
+        current_input_state.move_x = -1.0f;
+    } else if (right && !left) {
+        current_input_state.move_x = 1.0f;
     }
     
-    // Check for changes in key state
-    bool left_changed = (left != key_state.left_pressed);
-    bool right_changed = (right != key_state.right_pressed);
-    bool jump_changed = (jump != key_state.jump_pressed);
+    // Check controller input (will override keyboard if active)
+    if (controller_state.connected) {
+        update_controller_input();
+    }
+    
+    // Update key state for UI toggles
     bool debug_hud_changed = (debug_hud != key_state.debug_hud_pressed);
     
     // Toggle debug HUD on key press (not hold)
@@ -183,12 +227,26 @@ void input_update(double dt, void* user_data) {
     key_state.jump_pressed = jump;
     key_state.debug_hud_pressed = debug_hud;
     
-    // Apply input to physics
-    physics_apply_input(left, right, jump);
+    // Apply input to physics using the new analog system
+    physics_apply_analog_input(current_input_state);
     
-    // Debug output for input polling (only when keys change)
-    if (left_changed || right_changed || jump_changed || debug_hud_changed) {
-        LOG_DEBUG(LOG_CATEGORY_INPUT, "Input: left=%d, right=%d, jump=%d, debug_hud=%d", 
-               left, right, jump, debug_hud);
+    // Also apply to the legacy system for backward compatibility
+    physics_apply_input(
+        current_input_state.move_x < -ANALOG_DEADZONE,
+        current_input_state.move_x > ANALOG_DEADZONE,
+        current_input_state.jump
+    );
+    
+    // Debug output for input polling (only when significant changes occur)
+    static float last_move_x = 0.0f;
+    static bool last_jump = false;
+    
+    if (fabsf(current_input_state.move_x - last_move_x) > 0.1f || 
+        current_input_state.jump != last_jump || 
+        debug_hud_changed) {
+        LOG_DEBUG(LOG_CATEGORY_INPUT, "Input: move_x=%.2f, jump=%d, debug_hud=%d", 
+               current_input_state.move_x, current_input_state.jump, debug_hud);
+        last_move_x = current_input_state.move_x;
+        last_jump = current_input_state.jump;
     }
 } 

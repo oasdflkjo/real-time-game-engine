@@ -36,7 +36,7 @@ Entity* entity_create_player(float x, float y) {
     player->player.is_moving_left = false;
     player->player.is_moving_right = false;
     player->player.jump_force = 10.0f;
-    player->player.move_speed = 20.0f;
+    player->player.move_speed = 40.0f;
     
     // Set state flags
     player->is_active = true;
@@ -136,8 +136,16 @@ void entity_update(Entity* entity, double dt) {
 // Destroy an entity and free its memory
 void entity_destroy(Entity* entity) {
     if (entity) {
-        LOG_INFO(LOG_CATEGORY_GAME, "Destroying entity of type %d at (%.2f, %.2f)", 
-               entity->type, entity->position_x, entity->position_y);
+        // Log before freeing to avoid accessing freed memory in the log message
+        int entity_type = entity->type;
+        float pos_x = entity->position_x;
+        float pos_y = entity->position_y;
+        
+        // Free the entity
         free(entity);
+        
+        // Log after freeing
+        LOG_INFO(LOG_CATEGORY_GAME, "Destroyed entity of type %d at (%.2f, %.2f)", 
+               entity_type, pos_x, pos_y);
     }
 } 

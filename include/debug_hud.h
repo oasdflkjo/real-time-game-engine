@@ -28,6 +28,9 @@ float debug_hud_get_enemy_speed(void);
 // Set the initial enemy speed in the debug HUD
 void debug_hud_set_enemy_speed(float speed);
 
+// Show a goal reached message
+void debug_hud_show_goal_message(void);
+
 #ifdef __cplusplus
 }
 #endif
