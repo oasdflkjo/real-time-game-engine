@@ -2,7 +2,6 @@
 #define DEBUG_HUD_H
 
 #include "game_state.h"
-#include "animation.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,7 +14,7 @@ void debug_hud_init(void);
 void debug_hud_shutdown(void);
 
 // Render the debug HUD
-void debug_hud_render(const GameState* state, const AnimationState* anim_state);
+void debug_hud_render(const GameState* state);
 
 // Toggle the debug HUD visibility
 void debug_hud_toggle(void);

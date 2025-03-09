@@ -3,7 +3,6 @@
 #include "../include/renderer.h"
 #include "../include/physics.h"
 #include "../include/input.h"
-#include "../include/animation.h"
 #include "../include/camera.h"
 #include "../include/logging.h"
 #include <stdio.h>
@@ -189,13 +188,11 @@ int main(int argc, char** argv) {
     
     physics_init();
     input_init();
-    animation_init();
     
     // Add tasks to the scheduler
     scheduler_add_task(input_update, NULL, TASK_PRIORITY_PHYSICS_AI, "Input");
     scheduler_add_task(physics_update, NULL, TASK_PRIORITY_PHYSICS_AI, "Physics");
     scheduler_add_task(camera_update, NULL, TASK_PRIORITY_ANIMATION, "Camera");
-    scheduler_add_task(animation_update, NULL, TASK_PRIORITY_ANIMATION, "Animation");
     scheduler_add_task(render_task, NULL, TASK_PRIORITY_RENDER_AUDIO, "Render");
     scheduler_add_task(background_task, NULL, TASK_PRIORITY_BACKGROUND, "Background");
     
@@ -203,7 +200,6 @@ int main(int argc, char** argv) {
     scheduler_run();
     
     // Shutdown systems in reverse order
-    animation_shutdown();
     input_shutdown();
     physics_shutdown();
     camera_shutdown();

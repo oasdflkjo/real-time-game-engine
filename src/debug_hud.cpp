@@ -16,7 +16,6 @@ static struct {
     bool visible;
     bool show_demo_window;
     bool show_physics_window;
-    bool show_animation_window;
     bool show_performance_window;
 } debug_hud_state;
 
@@ -26,7 +25,6 @@ extern "C" void debug_hud_init(void) {
     debug_hud_state.visible = true;
     debug_hud_state.show_demo_window = false;
     debug_hud_state.show_physics_window = true;
-    debug_hud_state.show_animation_window = true;
     debug_hud_state.show_performance_window = true;
     
     // Get the GLFW window from the current context
@@ -87,22 +85,6 @@ static void render_physics_window(const GameState* state) {
     ImGui::End();
 }
 
-// Render the animation debug window
-static void render_animation_window(const AnimationState* anim_state) {
-    if (!ImGui::Begin("Animation Debug", &debug_hud_state.show_animation_window)) {
-        ImGui::End();
-        return;
-    }
-    
-    // Player animation
-    ImGui::Text("Player Animation: %s", anim_state->player.animation_name);
-    ImGui::Text("Current Frame: %d / %d", anim_state->player.current_frame + 1, anim_state->player.frame_count);
-    ImGui::Text("Frame Time: %.2f seconds", anim_state->player.frame_time);
-    ImGui::Text("Time Accumulator: %.2f seconds", anim_state->player.time_accumulator);
-    
-    ImGui::End();
-}
-
 // Render the performance debug window
 static void render_performance_window(void) {
     if (!ImGui::Begin("Performance", &debug_hud_state.show_performance_window)) {
@@ -122,7 +104,7 @@ static void render_performance_window(void) {
 }
 
 // Render the debug HUD
-extern "C" void debug_hud_render(const GameState* state, const AnimationState* anim_state) {
+extern "C" void debug_hud_render(const GameState* state) {
     if (!debug_hud_state.visible) {
         return;
     }
@@ -142,11 +124,6 @@ extern "C" void debug_hud_render(const GameState* state, const AnimationState* a
         render_physics_window(state);
     }
     
-    // Show animation debug window if enabled
-    if (debug_hud_state.show_animation_window) {
-        render_animation_window(anim_state);
-    }
-    
     // Show performance debug window if enabled
     if (debug_hud_state.show_performance_window) {
         render_performance_window();
@@ -157,7 +134,6 @@ extern "C" void debug_hud_render(const GameState* state, const AnimationState* a
         if (ImGui::BeginMenu("Debug")) {
             ImGui::MenuItem("Demo Window", NULL, &debug_hud_state.show_demo_window);
             ImGui::MenuItem("Physics", NULL, &debug_hud_state.show_physics_window);
-            ImGui::MenuItem("Animation", NULL, &debug_hud_state.show_animation_window);
             ImGui::MenuItem("Performance", NULL, &debug_hud_state.show_performance_window);
             ImGui::EndMenu();
         }

@@ -1,7 +1,6 @@
 #include "../include/renderer.h"
 #include "../include/camera.h"
 #include "../include/logging.h"
-#include "../include/animation.h"
 #include "../include/scheduler.h"
 #include "../include/debug_hud.h"
 #include <GLFW/glfw3.h>
@@ -835,9 +834,6 @@ void renderer_draw_game(const GameState* state) {
     // Get the current camera
     const Camera* camera = camera_get_current();
     
-    // Get the current animation state
-    const AnimationState* anim_state = animation_get_state();
-    
     // Clear the screen with black
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -878,18 +874,10 @@ void renderer_draw_game(const GameState* state) {
     }
     
     // Draw player with texture (1x2 meter rectangle)
-    // Use animation state to determine which frame to show
     float s1 = 0.0f;
     float t1 = 0.0f;
     float s2 = 1.0f;
     float t2 = 1.0f;
-    
-    // In a real sprite sheet, we would calculate texture coordinates based on the current frame
-    // For now, we'll just use the entire texture
-    // Example calculation for a 4x1 sprite sheet (4 frames in a row):
-    // float frame_width = 0.25f; // 1/4 of the texture width
-    // s1 = anim_state->player.current_frame * frame_width;
-    // s2 = s1 + frame_width;
     
     // Draw player with animation frame
     draw_textured_world_rectangle(camera, state->player.position_x, state->player.position_y, 
@@ -898,13 +886,6 @@ void renderer_draw_game(const GameState* state) {
     // Draw HUD (screen coordinates)
     char position_text[64];
     sprintf(position_text, "Player: (%.2f, %.2f) m", state->player.position_x, state->player.position_y);
-    
-    // Draw animation state info
-    char animation_text[64];
-    sprintf(animation_text, "Animation: %s (Frame %d/%d)", 
-           anim_state->player.animation_name,
-           anim_state->player.current_frame + 1,
-           anim_state->player.frame_count);
     
     // Draw FPS counter in the top-right corner
     glMatrixMode(GL_PROJECTION);
@@ -922,16 +903,13 @@ void renderer_draw_game(const GameState* state) {
     static double last_print_time = 0.0;
     double current_time = scheduler_get_time_ms() / 1000.0;
     if (current_time - last_print_time > 1.0) {
-        LOG_INFO(LOG_CATEGORY_RENDERER, "Player: (%.2f, %.2f) m, Animation: %s (Frame %d/%d)", 
-               state->player.position_x, state->player.position_y,
-               anim_state->player.animation_name,
-               anim_state->player.current_frame + 1,
-               anim_state->player.frame_count);
+        LOG_INFO(LOG_CATEGORY_RENDERER, "Player: (%.2f, %.2f) m", 
+               state->player.position_x, state->player.position_y);
         last_print_time = current_time;
     }
     
     // Render debug HUD
-    debug_hud_render(state, anim_state);
+    debug_hud_render(state);
 }
 
 // Check if the window should close
