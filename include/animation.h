@@ -3,6 +3,10 @@
 
 #include "game_state.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Animation state for a player
 typedef struct {
     int current_frame;         // Current animation frame
@@ -33,5 +37,9 @@ const AnimationState* animation_get_state(void);
 
 // Determine which animation to play based on player state
 void animation_set_player_animation(const PlayerState* player_state);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ANIMATION_H 

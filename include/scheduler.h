@@ -5,6 +5,10 @@
 #include <stdint.h>
 #include <windows.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Task priorities and frequencies
 typedef enum {
     TASK_PRIORITY_PHYSICS_AI = 0,    // 60Hz (16.67ms) - Fixed time step
@@ -61,5 +65,9 @@ void scheduler_request_quit(void);
 // Timing utilities
 double scheduler_get_time_ms(void);
 void scheduler_sleep_until(double target_time_ms);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // SCHEDULER_H 

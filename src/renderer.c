@@ -3,6 +3,7 @@
 #include "../include/logging.h"
 #include "../include/animation.h"
 #include "../include/scheduler.h"
+#include "../include/debug_hud.h"
 #include <GLFW/glfw3.h>
 #include <cglm/cglm.h>
 #include <stdio.h>
@@ -229,6 +230,9 @@ bool renderer_init(int width, int height) {
     // Generate player texture
     player_texture = generate_player_texture(128);
     
+    // Initialize debug HUD
+    debug_hud_init();
+    
     LOG_INFO(LOG_CATEGORY_RENDERER, "Initialized with OpenGL %s", glGetString(GL_VERSION));
     return true;
 }
@@ -257,6 +261,9 @@ void renderer_shutdown(void) {
     }
     
     glfwTerminate();
+    
+    // Shutdown debug HUD
+    debug_hud_shutdown();
     
     LOG_INFO(LOG_CATEGORY_RENDERER, "Shutdown");
 }
@@ -819,7 +826,7 @@ static GLuint generate_player_texture(int size) {
     return texture_id;
 }
 
-// Update the renderer_draw_game function to draw all ground planes
+// Update the renderer_draw_game function to include the debug HUD
 void renderer_draw_game(const GameState* state) {
     if (!state) {
         return;
@@ -922,6 +929,9 @@ void renderer_draw_game(const GameState* state) {
                anim_state->player.frame_count);
         last_print_time = current_time;
     }
+    
+    // Render debug HUD
+    debug_hud_render(state, anim_state);
 }
 
 // Check if the window should close

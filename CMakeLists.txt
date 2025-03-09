@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
-project(RealTimeGameEngine VERSION 0.1.0 LANGUAGES C)
+project(RealTimeGameEngine VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Add GLFW
 option(GLFW_BUILD_DOCS OFF)
@@ -19,11 +21,32 @@ add_subdirectory(external/cglm)
 # Find OpenGL
 find_package(OpenGL REQUIRED)
 
+# ImGui source files
+set(IMGUI_SOURCES
+    external/imgui/imgui.cpp
+    external/imgui/imgui_demo.cpp
+    external/imgui/imgui_draw.cpp
+    external/imgui/imgui_tables.cpp
+    external/imgui/imgui_widgets.cpp
+    external/imgui/backends/imgui_impl_glfw.cpp
+    external/imgui/backends/imgui_impl_opengl3.cpp
+)
+
+# C source files
+file(GLOB C_SOURCES "src/*.c")
+
+# C++ source files
+set(CXX_SOURCES
+    src/debug_hud.cpp
+)
+
 # Include directories
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/glfw/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/cglm/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui/backends
 )
 
 # Compiler flags to disable most warnings
@@ -38,11 +61,8 @@ else()
     add_compile_options(-Wmissing-field-initializers)  # Re-enable missed target warnings
 endif()
 
-# Source files
-file(GLOB_RECURSE SOURCES "src/*.c")
-
 # Create executable
-add_executable(${PROJECT_NAME} ${SOURCES})
+add_executable(${PROJECT_NAME} ${C_SOURCES} ${CXX_SOURCES} ${IMGUI_SOURCES})
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME}

@@ -2,6 +2,7 @@
 #include "../include/physics.h"
 #include "../include/renderer.h"
 #include "../include/logging.h"
+#include "../include/debug_hud.h"
 #include <GLFW/glfw3.h>
 #include <stdio.h>
 #include <string.h>
@@ -11,6 +12,7 @@
 #define KEY_LEFT GLFW_KEY_A
 #define KEY_RIGHT GLFW_KEY_D
 #define KEY_JUMP GLFW_KEY_SPACE
+#define KEY_DEBUG_HUD GLFW_KEY_F1
 
 // PlayStation controller button mappings (may vary by platform)
 #define PS_BUTTON_X 1       // X button
@@ -25,6 +27,7 @@ static struct {
     bool left_pressed;
     bool right_pressed;
     bool jump_pressed;
+    bool debug_hud_pressed;
 } key_state;
 
 // Controller state tracking
@@ -40,6 +43,7 @@ void input_init(void) {
     key_state.left_pressed = false;
     key_state.right_pressed = false;
     key_state.jump_pressed = false;
+    key_state.debug_hud_pressed = false;
     
     // Reset controller state
     controller_state.connected = false;
@@ -61,7 +65,7 @@ void input_init(void) {
         }
     }
     
-    LOG_INFO(LOG_CATEGORY_INPUT, "Initialized with controls: A=left, D=right, SPACE=jump");
+    LOG_INFO(LOG_CATEGORY_INPUT, "Initialized with controls: A=left, D=right, SPACE=jump, F1=toggle debug HUD");
     if (controller_state.connected) {
         LOG_INFO(LOG_CATEGORY_INPUT, "Controller support enabled: Left stick=move, X button=jump");
     } else {
@@ -155,6 +159,7 @@ void input_update(double dt, void* user_data) {
     bool left = input_is_key_pressed(KEY_LEFT);
     bool right = input_is_key_pressed(KEY_RIGHT);
     bool jump = input_is_key_pressed(KEY_JUMP);
+    bool debug_hud = input_is_key_pressed(KEY_DEBUG_HUD);
     
     // Check controller input (will override keyboard if active)
     if (controller_state.connected) {
@@ -165,18 +170,25 @@ void input_update(double dt, void* user_data) {
     bool left_changed = (left != key_state.left_pressed);
     bool right_changed = (right != key_state.right_pressed);
     bool jump_changed = (jump != key_state.jump_pressed);
+    bool debug_hud_changed = (debug_hud != key_state.debug_hud_pressed);
+    
+    // Toggle debug HUD on key press (not hold)
+    if (debug_hud && !key_state.debug_hud_pressed) {
+        debug_hud_toggle();
+    }
     
     // Update key state
     key_state.left_pressed = left;
     key_state.right_pressed = right;
     key_state.jump_pressed = jump;
+    key_state.debug_hud_pressed = debug_hud;
     
     // Apply input to physics
     physics_apply_input(left, right, jump);
     
     // Debug output for input polling (only when keys change)
-    if (left_changed || right_changed || jump_changed) {
-        LOG_DEBUG(LOG_CATEGORY_INPUT, "Input: left=%d, right=%d, jump=%d", 
-               left, right, jump);
+    if (left_changed || right_changed || jump_changed || debug_hud_changed) {
+        LOG_DEBUG(LOG_CATEGORY_INPUT, "Input: left=%d, right=%d, jump=%d, debug_hud=%d", 
+               left, right, jump, debug_hud);
     }
 } 

@@ -3,6 +3,10 @@
 
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Log levels
 typedef enum {
     LOG_LEVEL_DEBUG,
@@ -49,5 +53,9 @@ void logging_process(void);
 #define LOG_INFO(category, ...) logging_log(category, LOG_LEVEL_INFO, __FILE__, __LINE__, __VA_ARGS__)
 #define LOG_WARNING(category, ...) logging_log(category, LOG_LEVEL_WARNING, __FILE__, __LINE__, __VA_ARGS__)
 #define LOG_ERROR(category, ...) logging_log(category, LOG_LEVEL_ERROR, __FILE__, __LINE__, __VA_ARGS__)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // LOGGING_H 
