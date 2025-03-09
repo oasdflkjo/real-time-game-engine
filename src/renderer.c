@@ -48,9 +48,6 @@ static struct {
     char fps_text[32];
 } frame_counter = {0};
 
-// Add a debug flag for motion blur
-static bool enable_motion_blur = false;
-
 // Function declarations
 static GLuint generate_grid_texture(int size, float grid_spacing, float line_width, float r, float g, float b, float a);
 static void draw_textured_quad(float x, float y, float width, float height, float s1, float t1, float s2, float t2);
@@ -93,12 +90,6 @@ static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
-    }
-    
-    // Toggle motion blur with B key
-    if (key == GLFW_KEY_B && action == GLFW_PRESS) {
-        enable_motion_blur = !enable_motion_blur;
-        LOG_INFO(LOG_CATEGORY_RENDERER, "Motion blur: %s", enable_motion_blur ? "ON" : "OFF");
     }
     
     // Toggle VSync with V key
@@ -845,24 +836,9 @@ void renderer_draw_game(const GameState* state) {
     // Get the current camera
     const Camera* camera = camera_get_current();
     
-    // Clear the screen with black (unless motion blur is enabled)
-    if (!enable_motion_blur) {
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    } else {
-        // For motion blur, draw a semi-transparent black quad over the previous frame
-        glDisable(GL_TEXTURE_2D);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glColor4f(0.0f, 0.0f, 0.0f, 0.5f);  // Semi-transparent black
-        
-        glBegin(GL_QUADS);
-        glVertex2f(0, 0);
-        glVertex2f(window_width, 0);
-        glVertex2f(window_width, window_height);
-        glVertex2f(0, window_height);
-        glEnd();
-    }
+    // Clear the screen with black
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     
     // Set up orthographic projection
     glMatrixMode(GL_PROJECTION);
@@ -927,11 +903,11 @@ void renderer_draw_game(const GameState* state) {
         
         // Draw the entity
         draw_textured_world_rectangle(camera, 
-                                     entity->position_x, 
-                                     entity->position_y, 
-                                     entity->width, 
-                                     entity->height, 
-                                     texture, s1, t1, s2, t2);
+                                                         entity->position_x, 
+                                                         entity->position_y, 
+                                                         entity->width, 
+                                                         entity->height,
+                                                         texture, s1, t1, s2, t2);
     }
     
     // Draw HUD (screen coordinates)

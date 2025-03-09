@@ -2,6 +2,7 @@
 #include "../include/logging.h"
 #include "../include/physics.h"
 #include "../include/scheduler.h"
+// #include "../include/renderer.h"  // Removed for motion blur settings
 #include <stdio.h>
 #include <string.h>
 

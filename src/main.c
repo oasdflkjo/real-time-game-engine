@@ -190,8 +190,8 @@ int main(int argc, char** argv) {
     input_init();
     
     // Add tasks to the scheduler
-    scheduler_add_task(input_update, NULL, TASK_PRIORITY_PHYSICS_AI, "Input");
-    scheduler_add_task(physics_update, NULL, TASK_PRIORITY_PHYSICS_AI, "Physics");
+    scheduler_add_task(input_update, NULL, TASK_PRIORITY_ANIMATION, "Input");
+    scheduler_add_task(physics_update, NULL, TASK_PRIORITY_ANIMATION, "Physics");
     scheduler_add_task(camera_update, NULL, TASK_PRIORITY_ANIMATION, "Camera");
     scheduler_add_task(render_task, NULL, TASK_PRIORITY_RENDER_AUDIO, "Render");
     scheduler_add_task(background_task, NULL, TASK_PRIORITY_BACKGROUND, "Background");
