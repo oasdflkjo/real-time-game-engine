@@ -3,6 +3,7 @@
 #include "../include/logging.h"
 #include "../include/entity.h"
 #include "../include/debug_hud.h"
+#include "../include/camera.h"
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
@@ -321,6 +322,23 @@ static void update_entity_physics(Entity* entity, GameState* state, float dt) {
                 break;  // Only collide with one ground at a time
             }
         }
+    }
+    
+    // Apply pixel-perfect alignment for horizontal movement to prevent jittering
+    // This is especially important when player and enemy move at the same speed
+    if (entity->type == ENTITY_TYPE_PLAYER || entity->type == ENTITY_TYPE_ENEMY) {
+        // Get the current camera zoom level (pixels per meter)
+        const Camera* camera = camera_get_current();
+        float zoom = camera->zoom;
+        
+        // Convert world position to pixel position
+        float pixel_x = new_x * zoom;
+        
+        // Round to nearest pixel
+        pixel_x = roundf(pixel_x);
+        
+        // Convert back to world coordinates
+        new_x = pixel_x / zoom;
     }
     
     // Update entity position
